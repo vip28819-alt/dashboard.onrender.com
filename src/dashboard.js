@@ -62,11 +62,11 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
   };
   const permittedGuilds = (session) => client.guilds.cache.filter((guild) => {
     const remote = session.guilds.find((item) => item.id === guild.id);
-    return remote && ((BigInt(remote.permissions) & 0x8n) === 0x8n || (BigInt(remote.permissions) & 0x20n) === 0x20n);
+    return remote && (BigInt(remote.permissions) & 0x8n) === 0x8n;
   });
   const requireGuildAdmin = (request, response, next) => {
     if (!request.dashboardSession || !permittedGuilds(request.dashboardSession).has(request.params.id)) {
-      return response.status(403).json({ error: 'You need Administrator or Manage Server permission in this server.' });
+      return response.status(403).json({ error: 'You need Administrator permission in this server.' });
     }
     return next();
   };
@@ -112,7 +112,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
   app.get('/api/guilds', requireAuth, (request, response) => response.json(permittedGuilds(request.dashboardSession).map((guild) => ({ id: guild.id, name: guild.name }))));
   app.use('/api/guilds/:id', requireGuildAdmin);
   app.get('/api/guilds/:id', requireAuth, (request, response) => {
-    if (!permittedGuilds(request.dashboardSession).has(request.params.id)) return response.status(403).json({ error: 'You need Administrator or Manage Server permission in this server.' });
+    if (!permittedGuilds(request.dashboardSession).has(request.params.id)) return response.status(403).json({ error: 'You need Administrator permission in this server.' });
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found or bot is offline there.' });
     const settings = getGuildData(guild.id);
