@@ -257,6 +257,6 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
   });
   app.locals.createTicketSetup = createTicketSetup;
   const port = Number(process.env.PORT || process.env.DASHBOARD_PORT || 3000);
-  const host = process.env.DASHBOARD_HOST || '127.0.0.1';
+  const host = process.env.DASHBOARD_HOST || (process.env.PORT ? '0.0.0.0' : '127.0.0.1');
   app.listen(port, host, () => console.log(`Dashboard available at http://${host}:${port}`));
 }
