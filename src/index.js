@@ -166,6 +166,8 @@ async function sendLog(guild, title, description, color = 0x5865f2) {
   const category = /ticket/i.test(title) ? 'tickets' : /join|left|member/i.test(title) ? 'members' : /automod|security|raid|invite|caps|spam|blacklist/i.test(title) ? 'security' : 'moderation';
   if (settings.logEvents[category] === false) return;
   const eventKey = title.toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+  const eventSettingKey = eventKey.replaceAll(' ', '_');
+  if (settings.logEvents[eventSettingKey] === false) return;
   const eventKeys = [eventKey];
   if (/raid|security|invite|caps|spam|blacklist/i.test(eventKey)) eventKeys.push('security');
   if (/automod/i.test(eventKey)) eventKeys.push('auto mod');
