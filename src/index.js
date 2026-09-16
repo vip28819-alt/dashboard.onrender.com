@@ -498,21 +498,23 @@ process.once('SIGINT', () => { removePidFile(); client.destroy(); process.exit(0
 process.once('SIGTERM', () => { removePidFile(); client.destroy(); process.exit(0); });
 
 async function registerCommands() {
-  if (!process.env.DISCORD_TOKEN || !process.env.CLIENT_ID) throw new Error('DISCORD_TOKEN and CLIENT_ID are required in .env');
+  const applicationId = process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID;
+  if (!process.env.DISCORD_TOKEN || !applicationId) throw new Error('DISCORD_TOKEN and DISCORD_CLIENT_ID are required in the environment.');
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+  await rest.put(Routes.applicationCommands(applicationId), { body: commands });
   console.log(`Registered ${commands.length} global slash commands. Discord may take up to an hour to show new global commands.`);
 }
 
 async function registerGuildCommands(readyClient) {
+  const applicationId = process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID;
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   const guilds = [...readyClient.guilds.cache.values()];
-  await Promise.all(guilds.map((guild) => registerGuildCommand(rest, guild)));
+  await Promise.all(guilds.map((guild) => registerGuildCommand(rest, guild, applicationId)));
   console.log(`Registered ${commands.length} instant guild commands in ${guilds.length} connected servers.`);
 }
-async function registerGuildCommand(rest, guild) {
+async function registerGuildCommand(rest, guild, applicationId = process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID) {
   try {
-    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, guild.id), { body: commands });
+    await rest.put(Routes.applicationGuildCommands(applicationId, guild.id), { body: commands });
     console.log(`Commands ready in ${guild.name}.`);
   } catch (error) {
     console.error(`Could not register commands in ${guild.name} (${guild.id}):`, error.message);
@@ -525,7 +527,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   await registerGuildCommands(readyClient);
 });
 client.on(Events.GuildCreate, async (guild) => {
-  if (!process.env.DISCORD_TOKEN || !process.env.CLIENT_ID) return;
+  if (!process.env.DISCORD_TOKEN || !(process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID)) return;
   await registerGuildCommand(new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN), guild);
 });
 client.on('error', (error) => {
