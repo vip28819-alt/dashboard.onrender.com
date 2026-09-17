@@ -138,5 +138,41 @@ export const dashboardPage = `<!doctype html>
   new MutationObserver(translate).observe(document.body, { childList: true, subtree: true });
 })();
 </script>
+<script>
+(() => {
+  if ((localStorage.getItem('potato-language') || 'en') !== 'ar') return;
+  const labels = {
+    'Server operations': 'إدارة الخادم',
+    'Quick setup': 'إعداد سريع',
+    'Start with the modules that make the biggest difference to a new server.': 'ابدأ بالوحدات الأكثر فائدة للخادم الجديد.',
+    'Sign in with Discord to view only the servers where you are an administrator and the bot is installed.': 'سجّل الدخول عبر Discord لرؤية الخوادم التي تملك فيها صلاحية المشرف والبوت مثبت فيها فقط.',
+    'AutoMod rules': 'قواعد الإشراف التلقائي',
+    'AutoMod': 'الإشراف التلقائي',
+    'Webhook حماية': 'حماية Webhook',
+    'الإشراف التلقائي rules': 'قواعد الإشراف التلقائي',
+    'Choose what the bot detects and what happens when a rule is triggered.': 'اختر ما يكتشفه البوت وما يحدث عند تفعيل إحدى القواعد.',
+    'Quick setup': 'إعداد سريع',
+    'Set up all logs': 'إعداد جميع السجلات',
+    'Configure welcome': 'إعداد الترحيب',
+    'Harden protection': 'تعزيز الحماية',
+    'Create self roles': 'إنشاء رتب ذاتية',
+    'Publish tickets': 'نشر التذاكر',
+    'Spanish': 'الإسبانية',
+    'French': 'الفرنسية'
+  };
+  const translate = () => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((node) => {
+      let value = node.nodeValue;
+      Object.entries(labels).forEach(([from, to]) => { value = value.replaceAll(from, to); });
+      if (value !== node.nodeValue) node.nodeValue = value;
+    });
+  };
+  translate();
+  new MutationObserver(translate).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
 </body>
 </html>`;
