@@ -200,17 +200,32 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
       return response.status(500).json({ error: error.message });
     }
   });
-  app.get('/api/guilds/:id/ticket-systems', (request, response) => {
+  app.get('/api/guilds/:id/ticket-systems', async (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     const settings = getGuildData(guild.id);
-    const systems = (settings.ticketSystems || []).map((system) => ({
+    let changed = false;
+    const systems = (settings.ticketSystems || []).map(async (system) => {
+      const panelChannel = system.panelChannelId ? guild.channels.cache.get(system.panelChannelId) : null;
+      let panelMessageExists = false;
+      if (panelChannel?.isTextBased() && system.panelMessageId) {
+        panelMessageExists = Boolean(await panelChannel.messages.fetch(system.panelMessageId).catch(() => null));
+      }
+      if (!panelMessageExists && system.panelMessageId) {
+        system.panelMessageId = null;
+        changed = true;
+      }
+      return {
       ...system,
       categoryName: guild.channels.cache.get(system.categoryId)?.name || null,
-      panelChannelName: guild.channels.cache.get(system.panelChannelId)?.name || null,
+      panelChannelName: panelChannel?.name || null,
+      panelMessageExists,
       activeTickets: guild.channels.cache.filter((channel) => channel.type === ChannelType.GuildText && channel.parentId === system.categoryId && channel.name.startsWith(`${system.namePrefix}-`)).size
-    }));
-    return response.json(systems);
+      };
+    });
+    const resolvedSystems = await Promise.all(systems);
+    if (changed) saveData();
+    return response.json(resolvedSystems);
   });
   app.post('/api/guilds/:id/ticket-systems', async (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
