@@ -613,10 +613,16 @@ const clanCommand = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName('remove').setDescription('Remove a member from your clan').addUserOption((o) => o.setName('user').setDescription('Member to remove').setRequired(true)))
   .addSubcommand((s) => s.setName('leave').setDescription('Leave your current clan'))
   .addSubcommand((s) => s.setName('rename').setDescription('Rename your clan channels and role').addStringOption((o) => o.setName('name').setDescription('New clan name').setMinLength(2).setMaxLength(24).setRequired(true)));
+const economyCommand = new SlashCommandBuilder()
+  .setName('economy')
+  .setDescription('Use the server points economy')
+  .addSubcommand((s) => s.setName('balance').setDescription('Show your points balance').addUserOption((o) => o.setName('user').setDescription('Member to inspect')))
+  .addSubcommand((s) => s.setName('daily').setDescription('Claim your daily points'));
 
 const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Show the bot command guide'),
   new SlashCommandBuilder().setName('about').setDescription('Show bot information and dashboard link'),
+  economyCommand,
   new SlashCommandBuilder().setName('stop').setDescription('Stop the bot process').setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
   new SlashCommandBuilder().setName('copyserver').setDescription('Copy a server structure into this server').setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
     .addStringOption((o) => o.setName('source_server_id').setDescription('ID of a server the bot is already in').setRequired(true))
@@ -1018,6 +1024,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const user = interaction.options.getUser('user') || interaction.user;
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
       return interaction.reply({ embeds: [profileEmbed(interaction.guild, user, member, settings)] });
+    }
+    if (name === 'economy') {
+      const member = interaction.options.getUser('user') || interaction.user;
+      const stats = getMemberStats(settings, member.id);
+      if (interaction.options.getSubcommand() === 'daily') {
+        if (member.id !== interaction.user.id) return interaction.reply({ content: 'You can only claim your own daily reward.', ephemeral: true });
+        const now = Date.now();
+        if (stats.dailyAt && now - stats.dailyAt < 86400000) {
+          const remaining = Math.ceil((86400000 - (now - stats.dailyAt)) / 3600000);
+          return interaction.reply({ content: `Your daily reward is ready again in approximately **${remaining} hours**.`, ephemeral: true });
+        }
+        stats.coins = (stats.coins || 0) + 100;
+        stats.dailyAt = now;
+        saveData();
+        return interaction.reply({ embeds: [embed('Daily reward', `You received **100** Potato Points.\nYour balance is now **${stats.coins}** points.`, 0xd79a45)] });
+      }
+      return interaction.reply({ embeds: [embed('Potato Points', `<@${member.id}> has **${stats.coins || 0}** Potato Points.`, 0xd79a45)] });
     }
     if (name === 'clan') {
       const subcommand = interaction.options.getSubcommand();
