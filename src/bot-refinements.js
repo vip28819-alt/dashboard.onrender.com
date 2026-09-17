@@ -4,7 +4,7 @@ const COMMAND_GROUPS = {
   protection: ['security', 'lock', 'unlock', 'lockdown', 'blacklist'],
   community: ['ticket', 'rules', 'poll', 'remind', 'announce', 'say', 'selfrole', 'rep', 'suggest'],
   utility: ['help', 'commands', 'about', 'ping', 'serverinfo', 'userinfo', 'avatar', 'channelinfo', 'roleinfo', 'roll', 'log'],
-  administration: ['stop', 'copyserver', 'paste'],
+  administration: ['stop', 'copyserver', 'paste', 'deleteallchannels'],
   leveling: ['level', 'profile', 'rank', 'leaderboard', 'top', 'setxp', 'setlevel'],
   clans: ['clan'],
   economy: ['economy']

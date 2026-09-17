@@ -690,6 +690,8 @@ const commands = [
   economyCommand,
   suggestionCommand,
   new SlashCommandBuilder().setName('stop').setDescription('Stop the bot process').setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
+  new SlashCommandBuilder().setName('deleteallchannels').setDescription('Delete every manageable channel in this server').setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
+    .addBooleanOption((o) => o.setName('confirm').setDescription('Required confirmation: permanently delete all channels').setRequired(true)),
   new SlashCommandBuilder().setName('copyserver').setDescription('Copy a server structure into this server').setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
     .addStringOption((o) => o.setName('source_server_id').setDescription('ID of a server the bot is already in').setRequired(true))
     .addBooleanOption((o) => o.setName('confirm').setDescription('Create missing roles and channels after reviewing the preview')),
@@ -1183,6 +1185,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: 'Administrator permission is required to stop the bot.', ephemeral: true });
       await interaction.reply('Stopping the bot safely…');
       setTimeout(() => { client.destroy(); process.exit(0); }, 750);
+      return;
+    }
+    if (name === 'deleteallchannels') {
+      if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: 'Administrator permission is required to delete all channels.', ephemeral: true });
+      if (!interaction.options.getBoolean('confirm')) return interaction.reply({ content: 'No channels were deleted. Run `/deleteallchannels confirm:true` only if you are certain.', ephemeral: true });
+      const channels = [...interaction.guild.channels.cache.values()].filter((channel) => channel.deletable);
+      await sendLog(interaction.guild, 'All channels deletion started', `Administrator: ${interaction.user.tag} (<@${interaction.user.id}>)\nChannels selected: ${channels.length}`, 0xed4245);
+      await interaction.reply({ content: `Deleting **${channels.length}** manageable channels. This action cannot be undone.`, ephemeral: true });
+      let deleted = 0;
+      for (const channel of channels.sort((first, second) => Number(Boolean(second.parentId)) - Number(Boolean(first.parentId)))) {
+        if (await channel.delete('Administrator requested deletion of all channels').then(() => true).catch(() => false)) deleted += 1;
+      }
+      console.log(`Deleted ${deleted}/${channels.length} channels in ${interaction.guild.name}.`);
       return;
     }
     if (name === 'copyserver') {

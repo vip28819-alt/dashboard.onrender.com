@@ -31,6 +31,7 @@ Administrators can preview and copy a server structure with `/copyserver source_
 ## Commands
 
 - `/setup all` creates or reuses the complete baseline setup: private logs, rules, welcome, verification, suggestions, Islamic reminders, join-to-create voice, AFK role/channel, quarantine and verified roles, and the ticket panel. It also enables the complete protection defaults. Run it again safely to repair missing resources.
+- `/deleteallchannels confirm:true` permanently deletes every channel the bot can manage. Administrator permission and the explicit confirmation are required.
 - `/setup welcome channel:#welcome`
 - `/setup logs event:all` or `/log setup` to create a private category with one channel per log event
 - `/setup automod enabled:true`
