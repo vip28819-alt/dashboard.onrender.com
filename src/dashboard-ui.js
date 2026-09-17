@@ -170,6 +170,7 @@ export const dashboardPage = `<!doctype html>
     'Refresh': 'تحديث',
     'Sign in with Discord': 'تسجيل الدخول عبر Discord',
     'Manage your Discord servers': 'أدر خوادم Discord الخاصة بك',
+    'تسجيل الدخول عبر Discord to view only the servers where you are an administrator and the bot is installed.': 'سجّل الدخول عبر Discord لرؤية الخوادم التي تملك فيها صلاحية المشرف والبوت مثبت فيها فقط.',
     'Security score': 'درجة الأمان',
     'Enabled modules': 'الوحدات المفعّلة',
     'Command prefix': 'بادئة الأوامر',
