@@ -120,6 +120,7 @@ const spamTracker = new Map();
 const raidTracker = new Map();
 const voiceSessions = new Map();
 const dynamicVoiceRooms = new Map();
+const reminderState = new Map();
 function getGuildData(guildId) {
   guildData[guildId] ??= structuredClone(defaults);
   guildData[guildId].prefix = typeof guildData[guildId].prefix === 'string' && guildData[guildId].prefix.trim() ? guildData[guildId].prefix.trim() : defaults.prefix;
@@ -729,10 +730,13 @@ client.once(Events.ClientReady, async (readyClient) => {
       const settings = getGuildData(guild.id);
       const reminders = settings.islamicReminders;
       if (!reminders.enabled || !reminders.channelId || (friday && !reminders.friday) || (!friday && !reminders.hourly)) continue;
+      const reminderKey = `${guild.id}:${now.toISOString().slice(0, 10)}`;
+      if (friday && reminderState.has(reminderKey)) continue;
       const channel = guild.channels.cache.get(reminders.channelId);
       if (!channel?.isTextBased()) continue;
       const text = friday ? 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' : 'قال رسول الله ﷺ: «من صلى عليّ واحدة صلى الله عليه بها عشراً».';
       await channel.send({ embeds: [guildEmbed(guild, friday ? 'تذكير الجمعة' : 'تذكير إيماني', text, 0xd79a45)] }).catch((error) => console.error(`Could not send reminder in ${guild.name}:`, error.message));
+      if (friday) reminderState.set(reminderKey, true);
     }
   }, 60 * 60 * 1000);
 });
