@@ -111,7 +111,11 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     return response.redirect('/dashboard');
   });
   app.use('/api', requireAuth);
-  app.get('/api/guilds', requireAuth, (request, response) => response.json(permittedGuilds(request.dashboardSession).map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, iconUrl: guild.iconURL({ extension: guild.icon?.startsWith('a_') ? 'gif' : 'png', size: 64 }) }))));
+  app.get('/api/guilds', requireAuth, (request, response) => response.json(permittedGuilds(request.dashboardSession).map((guild) => {
+    const remote = request.dashboardSession.guilds.find((item) => item.id === guild.id);
+    const iconHash = remote?.icon || guild.icon;
+    return { id: guild.id, name: guild.name, icon: iconHash, iconUrl: iconHash ? `https://cdn.discordapp.com/icons/${guild.id}/${iconHash}.${iconHash.startsWith('a_') ? 'gif' : 'png'}?size=64` : null };
+  })));
   app.use('/api/guilds/:id', requireGuildAdmin);
   app.get('/api/guilds/:id', requireAuth, (request, response) => {
     if (!permittedGuilds(request.dashboardSession).has(request.params.id)) return response.status(403).json({ error: 'You need Administrator permission in this server.' });
