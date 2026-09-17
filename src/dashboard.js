@@ -94,9 +94,9 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
       const [userResponse, guildResponse] = await Promise.all([fetch('https://discord.com/api/users/@me', { headers: { authorization: `${token.token_type} ${token.access_token}` } }), fetch('https://discord.com/api/users/@me/guilds', { headers: { authorization: `${token.token_type} ${token.access_token}` } })]);
       if (!userResponse.ok || !guildResponse.ok) throw new Error('Discord OAuth verification failed.');
       const sessionId = crypto.randomBytes(32).toString('hex');
-      sessions.set(sessionId, { user: await userResponse.json(), guilds: await guildResponse.json(), expiresAt: Date.now() + 8 * 60 * 60 * 1000 });
+      sessions.set(sessionId, { user: await userResponse.json(), guilds: await guildResponse.json(), expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 });
       response.setHeader('Set-Cookie', [
-        `dashboard_session=${sessionId}; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=28800`,
+        `dashboard_session=${sessionId}; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=2592000`,
         'dashboard_oauth_state=; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=0'
       ]);
       return response.redirect('/dashboard');
@@ -111,7 +111,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     return response.redirect('/dashboard');
   });
   app.use('/api', requireAuth);
-  app.get('/api/guilds', requireAuth, (request, response) => response.json(permittedGuilds(request.dashboardSession).map((guild) => ({ id: guild.id, name: guild.name }))));
+  app.get('/api/guilds', requireAuth, (request, response) => response.json(permittedGuilds(request.dashboardSession).map((guild) => ({ id: guild.id, name: guild.name, icon: guild.icon, iconUrl: guild.iconURL({ extension: guild.icon?.startsWith('a_') ? 'gif' : 'png', size: 64 }) }))));
   app.use('/api/guilds/:id', requireGuildAdmin);
   app.get('/api/guilds/:id', requireAuth, (request, response) => {
     if (!permittedGuilds(request.dashboardSession).has(request.params.id)) return response.status(403).json({ error: 'You need Administrator permission in this server.' });
