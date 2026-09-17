@@ -44,6 +44,10 @@ const defaults = {
   commandAliases: { ban: [], kick: [], timeout: [], warn: [], purge: [], clear: [], lock: [], unlock: [], slowmode: [], quarantine: [], softban: [], unmute: [], lockdown: [] },
   welcomeChannelId: null,
   welcomeMessage: 'Welcome {user} to **{server}**!',
+  welcomeCardEnabled: true,
+  verificationEnabled: false,
+  verificationChannelId: null,
+  verificationMessageId: null,
   goodbyeChannelId: null,
   goodbyeMessage: '{username} has left **{server}**. We will remember you!',
   logChannelId: null,
@@ -121,6 +125,10 @@ function getGuildData(guildId) {
   guildData[guildId].rep ??= {};
   guildData[guildId].autoReplies ??= [];
   guildData[guildId].welcomeDelivery ??= defaults.welcomeDelivery;
+  guildData[guildId].welcomeCardEnabled ??= defaults.welcomeCardEnabled;
+  guildData[guildId].verificationEnabled ??= defaults.verificationEnabled;
+  guildData[guildId].verificationChannelId ??= defaults.verificationChannelId;
+  guildData[guildId].verificationMessageId ??= defaults.verificationMessageId;
   guildData[guildId].commandAliases = { ...structuredClone(defaults.commandAliases), ...(guildData[guildId].commandAliases || {}) };
   guildData[guildId].security ??= structuredClone(defaults.security);
   guildData[guildId].security = { ...structuredClone(defaults.security), ...guildData[guildId].security };
@@ -160,6 +168,25 @@ function guildEmbed(guild, title, description, color) {
   const configured = getGuildData(guild.id).embedColor;
   const normalized = typeof configured === 'string' ? Number.parseInt(configured.replace('#', ''), 16) : configured;
   return embed(title, description, color || normalized || 0x6558ed);
+}
+function welcomeCard(member) {
+  const server = member.guild.name.replace(/[<&>"]/g, '');
+  const user = member.user.username.replace(/[<&>"]/g, '');
+  const avatar = member.user.displayAvatarURL({ extension: 'png', size: 256 });
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500"><defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#17122b"/><stop offset="1" stop-color="#6558ed"/></linearGradient></defs><rect width="1200" height="500" rx="36" fill="url(#g)"/><circle cx="170" cy="250" r="112" fill="#0b1021" stroke="#d79a45" stroke-width="8"/><image href="${avatar}" x="70" y="150" width="200" height="200" clip-path="circle(100px at 100px 100px)"/><text x="340" y="205" fill="#d79a45" font-size="30" font-family="Arial">أهلاً وسهلاً بك</text><text x="340" y="270" fill="white" font-size="50" font-weight="700" font-family="Arial">${user}</text><text x="340" y="330" fill="#e8edf7" font-size="25" font-family="Arial">منوّر بين إخوانك في ${server}</text><text x="340" y="385" fill="#c8c1e8" font-size="21" font-family="Arial">نتمنى لك وقتاً ممتعاً معنا</text></svg>`;
+  return new AttachmentBuilder(Buffer.from(svg), { name: 'welcome-card.svg' });
+}
+async function publishVerificationPanel(guild, settings) {
+  if (!settings.verificationChannelId) throw new Error('Choose a verification channel first.');
+  const channel = guild.channels.cache.get(settings.verificationChannelId);
+  if (!channel?.isTextBased()) throw new Error('The verification channel is unavailable.');
+  const role = settings.verifiedRoleId ? guild.roles.cache.get(settings.verifiedRoleId) : null;
+  if (!role) throw new Error('Choose a verified role first.');
+  const message = await channel.send({ embeds: [guildEmbed(guild, 'Server verification', 'اضغط على الزر أدناه للحصول على رتبة العضو والدخول إلى السيرفر.', 0x57f287)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`verify:${guild.id}`).setLabel('تحقق من العضوية').setStyle(ButtonStyle.Success))] });
+  settings.verificationMessageId = message.id;
+  settings.verificationEnabled = true;
+  saveData();
+  return message;
 }
 function getXpRank(settings, userId) {
   const rows = Object.entries(settings.xp).sort(([, first], [, second]) => (second.xp || 0) - (first.xp || 0));
@@ -693,7 +720,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
   if (settings.welcomeDelivery === 'dm') await member.send(replaceTokens(settings.welcomeMessage, member, member.guild)).catch(() => {});
   if (settings.welcomeDelivery === 'channel' && settings.welcomeChannelId) {
     const channel = member.guild.channels.cache.get(settings.welcomeChannelId);
-    if (channel?.isTextBased()) await channel.send({ embeds: [guildEmbed(member.guild, 'Welcome!', replaceTokens(settings.welcomeMessage, member, member.guild), 0x57f287)] });
+    if (channel?.isTextBased()) {
+      const payload = { content: replaceTokens(settings.welcomeMessage, member, member.guild), embeds: [guildEmbed(member.guild, 'Welcome!', replaceTokens(settings.welcomeMessage, member, member.guild), 0x57f287)] };
+      if (settings.welcomeCardEnabled) payload.files = [welcomeCard(member)];
+      await channel.send(payload);
+    }
   }
 });
 
@@ -887,6 +918,18 @@ client.on(Events.VoiceStateUpdate, (before, after) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.guild) return;
   const settings = getGuildData(interaction.guild.id);
+  if (interaction.isButton() && interaction.customId === `verify:${interaction.guild.id}`) {
+    const role = settings.verifiedRoleId ? interaction.guild.roles.cache.get(settings.verifiedRoleId) : null;
+    if (!role) return interaction.reply({ content: 'The verification role is not configured yet.', ephemeral: true });
+    if (interaction.member.roles.cache.has(role.id)) return interaction.reply({ content: 'You are already verified.', ephemeral: true });
+    try {
+      await interaction.member.roles.add(role, 'Completed server verification');
+      return interaction.reply({ content: 'تم التحقق من عضويتك بنجاح.', ephemeral: true });
+    } catch (error) {
+      console.error(`Could not verify ${interaction.user.tag} in ${interaction.guild.name}:`, error.message);
+      return interaction.reply({ content: 'I could not assign the verified role. Please contact an administrator.', ephemeral: true });
+    }
+  }
   if (interaction.isButton() && interaction.customId.startsWith('ticket_open')) {
     try {
       const systemId = interaction.customId.split(':')[1] || 'default';
@@ -1033,6 +1076,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (error) { if (error?.code === 10062 || error?.rawError?.code === 10062) return; console.error(error); const response = { content: 'Something went wrong while running that command.', ephemeral: true }; try { if (interaction.deferred) await interaction.editReply(response); else if (interaction.replied) await interaction.followUp(response); else await interaction.reply(response); } catch (replyError) { if (replyError?.code !== 10062) console.error('Could not respond to interaction:', replyError); } }
 });
 
-startDashboard({ client, getGuildData, saveData, createTicketSetup, createServerSetup, ensurePrivateLogChannel });
+startDashboard({ client, getGuildData, saveData, createTicketSetup, createServerSetup, ensurePrivateLogChannel, publishVerificationPanel });
 await registerCommands();
 await client.login(process.env.DISCORD_TOKEN);
