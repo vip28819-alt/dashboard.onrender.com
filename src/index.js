@@ -79,7 +79,8 @@ const defaults = {
   levelUp: true,
   warnings: {},
   xp: {},
-  memberStats: {}
+  memberStats: {},
+  clans: {}
 };
 
 function loadData() {
@@ -135,6 +136,7 @@ function getGuildData(guildId) {
   guildData[guildId].warnings ??= {};
   guildData[guildId].xp ??= {};
   guildData[guildId].memberStats ??= {};
+  guildData[guildId].clans ??= {};
   guildData[guildId].blockedWords ??= [];
   guildData[guildId] = normalizeGuildSettings(guildData[guildId]);
   return guildData[guildId];
@@ -202,6 +204,88 @@ function profileEmbed(guild, user, member, settings) {
     { name: 'Roles', value: roles.length ? roles.map((role) => `\`${role}\``).join(', ') : 'No additional roles', inline: false }
   );
   return profile;
+}
+function getMemberClan(settings, userId) {
+  return Object.values(settings.clans || {}).find((clan) => clan.ownerId === userId || clan.members?.includes(userId)) || null;
+}
+function clanEmbed(clan, guild) {
+  return embed(`${clan.name} | Clan`, `Owner: <@${clan.ownerId}>\nMembers: **${clan.members.length}**\nActivity points: **${clan.points || 0}**\nCreated: <t:${Math.floor(clan.createdAt / 1000)}:D>`, 0xd79a45);
+}
+function clanRows(settings) {
+  return Object.values(settings.clans || {}).sort((first, second) => (second.points || 0) - (first.points || 0));
+}
+function cleanClanName(value) {
+  return String(value || '').trim().replace(/[^\p{L}\p{N} _-]/gu, '').slice(0, 24).trim();
+}
+async function createClan(guild, settings, owner, name) {
+  const clanName = cleanClanName(name);
+  if (!clanName) throw new Error('Clan name must contain letters or numbers.');
+  if (getMemberClan(settings, owner.id)) throw new Error('You already belong to a clan. Leave it before creating another one.');
+  if (Object.values(settings.clans).some((clan) => clan.name.toLowerCase() === clanName.toLowerCase())) throw new Error('A clan with that name already exists.');
+  const role = await guild.roles.create({ name: clanName, reason: `Clan created by ${owner.tag}` });
+  const baseOverwrites = [
+    { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+    { id: role.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak] },
+    { id: owner.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak, PermissionsBitField.Flags.ManageChannels] }
+  ];
+  const text = await guild.channels.create({ name: `clan-${clanName.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 24)}`, type: ChannelType.GuildText, permissionOverwrites: baseOverwrites, reason: `Clan channel for ${clanName}` });
+  const voice = await guild.channels.create({ name: clanName, type: ChannelType.GuildVoice, permissionOverwrites: baseOverwrites, reason: `Clan voice room for ${clanName}` });
+  await guild.members.fetch(owner.id).then((member) => member.roles.add(role)).catch(() => {});
+  const clan = { id: role.id, name: clanName, ownerId: owner.id, roleId: role.id, textChannelId: text.id, voiceChannelId: voice.id, members: [owner.id], points: 0, createdAt: Date.now() };
+  settings.clans[clan.id] = clan;
+  return clan;
+}
+async function deleteClanResources(guild, clan) {
+  await guild.channels.delete(clan.textChannelId, 'Clan deleted').catch(() => {});
+  await guild.channels.delete(clan.voiceChannelId, 'Clan deleted').catch(() => {});
+  await guild.roles.delete(clan.roleId, 'Clan deleted').catch(() => {});
+}
+async function runClanCommand(guild, settings, actor, subcommand, options = {}) {
+  const current = getMemberClan(settings, actor.id);
+  if (subcommand === 'create') return { clan: await createClan(guild, settings, actor, options.name) };
+  if (subcommand === 'top') return { rows: clanRows(settings).slice(0, 10) };
+  if (subcommand === 'info') {
+    const requested = options.name ? clanRows(settings).find((clan) => clan.name.toLowerCase() === options.name.toLowerCase()) : current;
+    if (!requested) throw new Error('No clan was found.');
+    return { clan: requested };
+  }
+  if (subcommand === 'leave') {
+    if (!current) throw new Error('You are not in a clan.');
+    if (current.ownerId === actor.id) {
+      await deleteClanResources(guild, current);
+      delete settings.clans[current.id];
+      return { deleted: true };
+    }
+    current.members = current.members.filter((id) => id !== actor.id);
+    await guild.members.fetch(actor.id).then((member) => member.roles.remove(current.roleId)).catch(() => {});
+    return { clan: current };
+  }
+  if (!current) throw new Error('You are not in a clan.');
+  if (['add', 'remove', 'rename'].includes(subcommand) && current.ownerId !== actor.id) throw new Error('Only the clan owner can use that action.');
+  if (subcommand === 'add') {
+    const member = await guild.members.fetch(options.userId).catch(() => null);
+    if (!member || member.user.bot) throw new Error('That member could not be found.');
+    if (getMemberClan(settings, member.id)) throw new Error('That member already belongs to a clan.');
+    current.members.push(member.id);
+    await member.roles.add(current.roleId);
+    return { clan: current };
+  }
+  if (subcommand === 'remove') {
+    if (options.userId === current.ownerId) throw new Error('The owner cannot be removed.');
+    current.members = current.members.filter((id) => id !== options.userId);
+    await guild.members.fetch(options.userId).then((member) => member.roles.remove(current.roleId)).catch(() => {});
+    return { clan: current };
+  }
+  if (subcommand === 'rename') {
+    const name = cleanClanName(options.name);
+    if (!name) throw new Error('Clan name must contain letters or numbers.');
+    current.name = name;
+    await guild.roles.edit(current.roleId, { name });
+    await guild.channels.edit(current.textChannelId, { name: `clan-${name.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 24)}` });
+    await guild.channels.edit(current.voiceChannelId, { name });
+    return { clan: current };
+  }
+  throw new Error('Unknown clan action.');
 }
 async function sendLog(guild, title, description, color = 0x5865f2) {
   const settings = getGuildData(guild.id);
@@ -479,6 +563,17 @@ const blacklistCommand = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName('remove').setDescription('Remove a user from the blacklist').addUserOption((o) => o.setName('user').setDescription('User to remove').setRequired(true)))
   .addSubcommand((s) => s.setName('list').setDescription('Show blacklisted users'));
 
+const clanCommand = new SlashCommandBuilder()
+  .setName('clan')
+  .setDescription('Create and manage your server clan')
+  .addSubcommand((s) => s.setName('create').setDescription('Create your clan').addStringOption((o) => o.setName('name').setDescription('Clan name').setMinLength(2).setMaxLength(24).setRequired(true)))
+  .addSubcommand((s) => s.setName('info').setDescription('Show your clan or another clan').addStringOption((o) => o.setName('name').setDescription('Clan name')))
+  .addSubcommand((s) => s.setName('top').setDescription('Show the most active clans'))
+  .addSubcommand((s) => s.setName('add').setDescription('Add a member to your clan').addUserOption((o) => o.setName('user').setDescription('Member to add').setRequired(true)))
+  .addSubcommand((s) => s.setName('remove').setDescription('Remove a member from your clan').addUserOption((o) => o.setName('user').setDescription('Member to remove').setRequired(true)))
+  .addSubcommand((s) => s.setName('leave').setDescription('Leave your current clan'))
+  .addSubcommand((s) => s.setName('rename').setDescription('Rename your clan channels and role').addStringOption((o) => o.setName('name').setDescription('New clan name').setMinLength(2).setMaxLength(24).setRequired(true)));
+
 const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Show the bot command guide'),
   new SlashCommandBuilder().setName('about').setDescription('Show bot information and dashboard link'),
@@ -533,6 +628,7 @@ const commands = [
   setupCommand,
   new SlashCommandBuilder().setName('security').setDescription('View server security status'),
   blacklistCommand,
+  clanCommand,
   new SlashCommandBuilder().setName('ticket').setDescription('Open a private support ticket')
 ].map((command) => command.toJSON());
 
@@ -637,6 +733,8 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
   const settings = getGuildData(message.guild.id);
   getMemberStats(settings, message.author.id).messages += 1;
+  const memberClan = getMemberClan(settings, message.author.id);
+  if (memberClan) memberClan.points = (memberClan.points || 0) + 1;
   saveData();
   const matchingReply = settings.autoReplies.find((entry) => entry.enabled !== false && message.content.toLowerCase().includes(entry.trigger.toLowerCase()));
   if (matchingReply) await message.reply(matchingReply.response).catch(() => {});
@@ -654,6 +752,17 @@ client.on(Events.MessageCreate, async (message) => {
     if (commandName === 'rules') return message.reply({ embeds: [embed('Server rules', settings.rulesText, 0xfee75c)] });
     if (commandName === 'security') return message.reply({ embeds: [embed('Security status', `Anti-spam: **${settings.security.antiSpam ? 'ON' : 'OFF'}**\nAnti-invite: **${settings.security.antiInvite ? 'ON' : 'OFF'}**\nAnti-caps: **${settings.security.antiCaps ? 'ON' : 'OFF'}**\nAnti-raid: **${settings.security.antiRaid ? 'ON' : 'OFF'}**`)] });
     if (commandName === 'serverinfo') return message.reply({ embeds: [embed(message.guild.name, `Members: **${message.guild.memberCount}**\nChannels: **${message.guild.channels.cache.size}**`)] });
+    if (commandName === 'clan') {
+      const subcommand = args[0]?.toLowerCase() || 'info';
+      const userId = message.mentions.users.first()?.id;
+      try {
+        const result = await runClanCommand(message.guild, settings, message.member, subcommand, { name: args.slice(1).filter((arg) => !arg.startsWith('<@')).join(' '), userId });
+        saveData();
+        if (result.rows) return message.reply({ embeds: [embed('Top clans', result.rows.length ? result.rows.map((clan, index) => `**${index + 1}.** ${clan.name} — **${clan.points || 0}** points, **${clan.members.length}** members`).join('\n') : 'No clans have been created yet.')] });
+        if (result.deleted) return message.reply('Your clan and its private channels were deleted.');
+        if (result.clan) return message.reply({ embeds: [clanEmbed(result.clan, message.guild)] });
+      } catch (error) { return message.reply(error.message); }
+    }
     if (['level', 'profile', 'rank'].includes(commandName)) { const user = message.mentions.users.first() || message.author; const member = await message.guild.members.fetch(user.id).catch(() => null); return message.reply({ embeds: [profileEmbed(message.guild, user, member, settings)] }); }
     if (['leaderboard', 'top'].includes(commandName)) { const rows = Object.entries(settings.xp).sort(([, first], [, second]) => second.xp - first.xp).slice(0, 10); return message.reply({ embeds: [embed('XP leaderboard', rows.length ? rows.map(([id, record], index) => `**${index + 1}.** <@${id}> - level ${record.level}, ${record.xp} XP`).join('\n') : 'No XP recorded yet.')] }); }
     if (commandName === 'roll') { const sides = Math.min(Math.max(Number(args[0]) || 6, 2), 1000); return message.reply(`🎲 **${Math.floor(Math.random() * sides) + 1}** (1-${sides})`); }
@@ -768,6 +877,8 @@ client.on(Events.VoiceStateUpdate, (before, after) => {
     const stats = getMemberStats(settings, member.id);
     stats.voiceSeconds += seconds;
     stats.voiceXp = Math.floor(stats.voiceSeconds / 60);
+    const clan = getMemberClan(settings, member.id);
+    if (clan) clan.points = (clan.points || 0) + Math.floor(seconds / 60);
     voiceSessions.delete(key);
     saveData();
   }
@@ -811,6 +922,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const user = interaction.options.getUser('user') || interaction.user;
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
       return interaction.reply({ embeds: [profileEmbed(interaction.guild, user, member, settings)] });
+    }
+    if (name === 'clan') {
+      const subcommand = interaction.options.getSubcommand();
+      const target = interaction.options.getUser('user');
+      try {
+        const result = await runClanCommand(interaction.guild, settings, interaction.member, subcommand, {
+          name: interaction.options.getString('name'),
+          userId: target?.id
+        });
+        saveData();
+        if (result.rows) return interaction.reply({ embeds: [embed('Top clans', result.rows.length ? result.rows.map((clan, index) => `**${index + 1}.** ${clan.name} — **${clan.points || 0}** points, **${clan.members.length}** members`).join('\n') : 'No clans have been created yet.')] });
+        if (result.deleted) return interaction.reply('Your clan and its private channels were deleted.');
+        return interaction.reply({ embeds: [clanEmbed(result.clan, interaction.guild)] });
+      } catch (error) {
+        return interaction.reply({ content: error.message, ephemeral: true });
+      }
     }
     if (name === 'stop') {
       if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: 'Administrator permission is required to stop the bot.', ephemeral: true });

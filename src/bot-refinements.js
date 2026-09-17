@@ -5,7 +5,8 @@ const COMMAND_GROUPS = {
   community: ['ticket', 'rules', 'poll', 'remind', 'announce', 'say', 'selfrole', 'rep'],
   utility: ['help', 'about', 'ping', 'serverinfo', 'userinfo', 'avatar', 'channelinfo', 'roleinfo', 'roll', 'log'],
   administration: ['stop', 'copyserver', 'paste'],
-  leveling: ['level', 'profile', 'rank', 'leaderboard', 'top', 'setxp', 'setlevel']
+  leveling: ['level', 'profile', 'rank', 'leaderboard', 'top', 'setxp', 'setlevel'],
+  clans: ['clan']
 };
 
 export function normalizeAliases(value, commandNames = Object.keys(defaultAliases())) {

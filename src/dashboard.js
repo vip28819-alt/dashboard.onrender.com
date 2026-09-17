@@ -149,6 +149,16 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
         .map((role) => ({ id: role.id, name: role.name, position: role.position }))
     });
   });
+  app.get('/api/guilds/:id/clans', requireAuth, requireGuildAdmin, (request, response) => {
+    const guild = client.guilds.cache.get(request.params.id);
+    if (!guild) return response.status(404).json({ error: 'Server not found.' });
+    const settings = getGuildData(guild.id);
+    return response.json(Object.values(settings.clans || {}).sort((first, second) => (second.points || 0) - (first.points || 0)).map((clan) => ({
+      ...clan,
+      ownerName: guild.members.cache.get(clan.ownerId)?.user?.username || clan.ownerId,
+      members: clan.members.map((id) => ({ id, name: guild.members.cache.get(id)?.user?.username || id }))
+    })));
+  });
   app.patch('/api/guilds/:id', (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
