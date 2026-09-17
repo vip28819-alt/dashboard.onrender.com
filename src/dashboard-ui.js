@@ -125,5 +125,14 @@ export const dashboardPage = `<!doctype html>
   const run = () => translate(document.body); if(document.body) run(); new MutationObserver(run).observe(document.body,{childList:true,subtree:true});
 })();
 </script>
+<script>
+(() => {
+  const replacements = [
+    ['SERVER OPERATIONS', '\u0625\u062f\u0627\u0631\u0629 \u0627\u0644\u062e\u0627\u062f\u0645'], ['A clear, actionable view of every system the bot manages.', '\u0646\u0638\u0631\u0629 \u0648\u0627\u0636\u062d\u0629 \u0648\u0639\u0645\u0644\u064a\u0629 \u0644\u0643\u0644 \u0623\u0646\u0638\u0645\u0629 \u0627\u0644\u0628\u0648\u062a.'], ['Use these modules to configure the same workflows members use in Discord.', '\u0627\u0633\u062a\u062e\u062f\u0645 \u0647\u0630\u0647 \u0627\u0644\u0648\u062d\u062f\u0627\u062a \u0644\u0625\u0639\u062f\u0627\u062f \u0646\u0641\u0633 \u0627\u0644\u0648\u0638\u0627\u0626\u0641 \u0627\u0644\u062a\u064a \u064a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0627\u0644\u0623\u0639\u0636\u0627\u0621 \u0641\u064a Discord.'], ['Shared presentation defaults used by the bot.', '\u0627\u0644\u0625\u0639\u062f\u0627\u062f\u0627\u062a \u0627\u0644\u0627\u0641\u062a\u0631\u0627\u0636\u064a\u0629 \u0627\u0644\u0645\u0634\u062a\u0631\u0643\u0629 \u0627\u0644\u062a\u064a \u064a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0627\u0644\u0628\u0648\u062a.'], ['Embed color', '\u0644\u0648\u0646 \u0627\u0644\u062a\u0630\u0643\u064a\u0631\u0629'], ['Save defaults', '\u062d\u0641\u0638 \u0627\u0644\u0625\u0639\u062f\u0627\u062f\u0627\u062a'], ['logs', '\u0627\u0644\u0633\u062c\u0644\u0627\u062a'], ['goodbye', '\u0648\u062f\u0627\u0639'], ['welcome', '\u062a\u0631\u062d\u064a\u0628'], ['tickets', '\u062a\u0630\u0627\u0643\u0631'], ['rules', '\u0642\u0648\u0627\u0639\u062f'], ['protection', '\u062d\u0645\u0627\u064a\u0629'], ['leveling', '\u0645\u0633\u062a\u0648\u064a\u0627\u062a'], ['quarantine', '\u062d\u062c\u0632'], ['ON', '\u0645\u0641\u0639\u0651\u0644'], ['OFF', '\u0645\u0639\u0637\u0651\u0644'], ['open', '\u0645\u0641\u062a\u0648\u062d']
+  ];
+  const walk = (root) => { const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); nodes.forEach((node) => replacements.forEach(([from, to]) => { if (node.nodeValue.trim() === from) node.nodeValue = to; else if (from.length > 4 && node.nodeValue.includes(from)) node.nodeValue = node.nodeValue.replaceAll(from, to); })); };
+  walk(document.body);
+})();
+</script>
 </body>
 </html>`;
