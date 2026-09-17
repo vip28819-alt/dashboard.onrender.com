@@ -52,6 +52,8 @@ const defaults = {
   joinToCreateChannelId: null,
   afkRoleId: null,
   afkChannelId: null,
+  suggestionsChannelId: null,
+  suggestions: {},
   goodbyeChannelId: null,
   goodbyeMessage: '{username} has left **{server}**. We will remember you!',
   logChannelId: null,
@@ -137,6 +139,8 @@ function getGuildData(guildId) {
   guildData[guildId].joinToCreateChannelId ??= defaults.joinToCreateChannelId;
   guildData[guildId].afkRoleId ??= defaults.afkRoleId;
   guildData[guildId].afkChannelId ??= defaults.afkChannelId;
+  guildData[guildId].suggestionsChannelId ??= defaults.suggestionsChannelId;
+  guildData[guildId].suggestions ??= {};
   guildData[guildId].commandAliases = { ...structuredClone(defaults.commandAliases), ...(guildData[guildId].commandAliases || {}) };
   guildData[guildId].security ??= structuredClone(defaults.security);
   guildData[guildId].security = { ...structuredClone(defaults.security), ...guildData[guildId].security };
@@ -618,11 +622,16 @@ const economyCommand = new SlashCommandBuilder()
   .setDescription('Use the server points economy')
   .addSubcommand((s) => s.setName('balance').setDescription('Show your points balance').addUserOption((o) => o.setName('user').setDescription('Member to inspect')))
   .addSubcommand((s) => s.setName('daily').setDescription('Claim your daily points'));
+const suggestionCommand = new SlashCommandBuilder()
+  .setName('suggest')
+  .setDescription('Send a suggestion to the community')
+  .addStringOption((o) => o.setName('text').setDescription('Your suggestion').setMinLength(5).setMaxLength(1000).setRequired(true));
 
 const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Show the bot command guide'),
   new SlashCommandBuilder().setName('about').setDescription('Show bot information and dashboard link'),
   economyCommand,
+  suggestionCommand,
   new SlashCommandBuilder().setName('stop').setDescription('Stop the bot process').setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
   new SlashCommandBuilder().setName('copyserver').setDescription('Copy a server structure into this server').setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
     .addStringOption((o) => o.setName('source_server_id').setDescription('ID of a server the bot is already in').setRequired(true))
@@ -1024,6 +1033,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const user = interaction.options.getUser('user') || interaction.user;
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
       return interaction.reply({ embeds: [profileEmbed(interaction.guild, user, member, settings)] });
+    }
+    if (name === 'suggest') {
+      const target = settings.suggestionsChannelId ? interaction.guild.channels.cache.get(settings.suggestionsChannelId) : interaction.channel;
+      if (!target?.isTextBased()) return interaction.reply({ content: 'The suggestions channel is not available.', ephemeral: true });
+      const id = `${interaction.user.id}-${Date.now()}`;
+      settings.suggestions[id] = { id, authorId: interaction.user.id, text: interaction.options.getString('text', true), up: [], down: [], createdAt: Date.now() };
+      const message = await target.send({ embeds: [embed('اقتراح جديد', `${settings.suggestions[id].text}\n\nالاقتراح من: <@${interaction.user.id}>`, 0xd79a45)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`suggest_vote:${id}:up`).setLabel('موافق 0').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`suggest_vote:${id}:down`).setLabel('غير موافق 0').setStyle(ButtonStyle.Danger))] });
+      settings.suggestions[id].messageId = message.id;
+      saveData();
+      return interaction.reply({ content: `تم إرسال اقتراحك في ${target}.`, ephemeral: true });
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('suggest_vote:')) {
+      const [, id, vote] = interaction.customId.split(':');
+      const suggestion = settings.suggestions[id];
+      if (!suggestion) return interaction.reply({ content: 'This suggestion is no longer available.', ephemeral: true });
+      suggestion.up = suggestion.up.filter((userId) => userId !== interaction.user.id);
+      suggestion.down = suggestion.down.filter((userId) => userId !== interaction.user.id);
+      suggestion[vote].push(interaction.user.id);
+      await interaction.update({ components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`suggest_vote:${id}:up`).setLabel(`موافق ${suggestion.up.length}`).setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`suggest_vote:${id}:down`).setLabel(`غير موافق ${suggestion.down.length}`).setStyle(ButtonStyle.Danger))] });
+      saveData();
+      return;
     }
     if (name === 'economy') {
       const member = interaction.options.getUser('user') || interaction.user;
