@@ -510,8 +510,8 @@ async function createServerSetup(guild) {
   const ticketRatings = await provision('ticket ratings channel', () => makeText('ticket-ratings', 'Support service ratings for senior staff.', supportCategory?.id));
   const moderationAlerts = await provision('moderation alerts channel', () => makeText('moderation-alerts', 'Auto-moderation, anti-raid, and protection alerts.', supportCategory?.id));
   const voiceLeaderboard = await provision('voice leaderboard channel', () => makeText('voice-leaderboard', 'Weekly voice activity leaderboard.', activitiesCategory?.id));
-  const verifiedRole = await makeRole('Verified', 0x57f287);
-  const afkRole = await makeRole('AFK', 0x95a5a6);
+  const verifiedRole = await provision('Verified role', () => makeRole('Verified', 0x57f287));
+  const afkRole = await provision('AFK role', () => makeRole('AFK', 0x95a5a6));
   const logChannels = [];
   const logFailures = [];
   for (const eventKey of logEventKeys) {
@@ -529,8 +529,8 @@ async function createServerSetup(guild) {
   settings.suggestionsChannelId = suggestions?.id || settings.suggestionsChannelId;
   settings.joinToCreateChannelId = joinToCreate?.id || settings.joinToCreateChannelId;
   settings.afkChannelId = afk?.id || settings.afkChannelId;
-  settings.verifiedRoleId = verifiedRole.id;
-  settings.afkRoleId = afkRole.id;
+  settings.verifiedRoleId = verifiedRole?.id || settings.verifiedRoleId;
+  settings.afkRoleId = afkRole?.id || settings.afkRoleId;
   settings.welcomeCardEnabled = true;
   settings.verificationEnabled = true;
   settings.security.antiBotJoin = true;
@@ -538,17 +538,18 @@ async function createServerSetup(guild) {
   settings.islamicReminders = { ...settings.islamicReminders, enabled: true, channelId: reminders?.id || settings.islamicReminders.channelId, hourly: true, friday: true };
   settings.rulesText = settings.rulesText || 'Be respectful, follow Discord rules, and keep this community welcoming.';
   if (rules) await rules.send({ embeds: [guildEmbed(guild, 'Server rules', settings.rulesText, 0xfee75c)] }).catch(() => {});
-  await createTicketSetup(guild);
+  await provision('ticket system', () => createTicketSetup(guild));
   if (settings.verificationMessageId) {
     const existingVerification = verification && await verification.messages.fetch(settings.verificationMessageId).catch(() => null);
     if (!existingVerification) settings.verificationMessageId = null;
   }
-  if (!settings.verificationMessageId && verification) await publishVerificationPanel(guild, settings);
+  if (!settings.verificationMessageId && verification && settings.verifiedRoleId) await provision('verification panel', () => publishVerificationPanel(guild, settings));
   saveData();
   return {
+    setupRevision: '2026-09-17-feature-blueprint-v2',
     quarantineRoleId: quarantine.id,
-    verifiedRoleId: verifiedRole.id,
-    afkRoleId: afkRole.id,
+    verifiedRoleId: verifiedRole?.id,
+    afkRoleId: afkRole?.id,
     logChannelId: settings.logChannelId,
     logCategoryId: settings.logCategoryId,
     logChannels: logChannels.length,
