@@ -30,6 +30,7 @@ Administrators can preview and copy a server structure with `/copyserver source_
 
 ## Commands
 
+- `/setup all` creates or reuses the complete baseline setup: private logs, rules, welcome, verification, suggestions, Islamic reminders, join-to-create voice, AFK role/channel, quarantine and verified roles, and the ticket panel. It also enables the complete protection defaults. Run it again safely to repair missing resources.
 - `/setup welcome channel:#welcome`
 - `/setup logs event:all` or `/log setup` to create a private category with one channel per log event
 - `/setup automod enabled:true`
@@ -38,7 +39,7 @@ Administrators can preview and copy a server structure with `/copyserver source_
 - `/rep`, `/selfrole`, `/roll`
 - `/ticket`
 - `/stop` (Administrator only; gracefully stops the bot process)
-- `/about` (bot information and dashboard link), `/help`, `/ping`, `/serverinfo`, `/userinfo`
+- `/about` (bot information and dashboard link), `/help`, `/commands`, `/ping`, `/serverinfo`, `/userinfo`
 
 Settings, XP, message counts, and voice activity are stored in `data/guilds.json`, which is created automatically. Members can use `/profile user:@member` or the prefix equivalent (`!profile @member`) to view chat level and XP, chat rank, messages sent, voice level, voice hours, voice rank, reputation, join date, and roles. Voice time is tracked while members are connected to a voice channel, and voice level is calculated from one voice XP per minute using the same square-root progression style as chat levels. The public information page is available at `http://localhost:3000` and the control center at `http://localhost:3000/dashboard` by default. For public hosting, deploy the service with `DASHBOARD_HOST=0.0.0.0`, set `DASHBOARD_PUBLIC_URL` to the public HTTPS URL, and configure Discord OAuth with `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_REDIRECT_URI` set to `${DASHBOARD_PUBLIC_URL}/auth/callback`. Visitors must sign in with Discord; the dashboard only shows servers where the signed-in user has Administrator or Manage Server permission. Configure self-assignable roles in the dashboard, then members can toggle them with `/selfrole role:@Role`.
 

@@ -51,7 +51,11 @@
     ['Welcome flow', Boolean(settings.welcomeChannelId), 'New members receive a clear first message.'],
     ['Ticket system', Boolean(settings.ticketCategoryId && settings.ticketPanelChannelId), 'Support requests have a private route.'],
     ['Quarantine role', Boolean(settings.quarantineRoleId), 'Suspicious members can be isolated.'],
-    ['Protection filters', Boolean(settings.security?.antiSpam && settings.security?.antiInvite), 'Core message filters are enabled.']
+    ['Protection filters', Boolean(settings.security?.antiSpam && settings.security?.antiInvite), 'Core message filters are enabled.'],
+    ['Verification', Boolean(settings.verificationEnabled && settings.verificationChannelId && settings.verifiedRoleId), 'New members can verify before receiving access.'],
+    ['Suggestions', Boolean(settings.suggestionsChannelId), 'Members have a dedicated place for suggestions.'],
+    ['Islamic reminders', Boolean(settings.islamicReminders?.enabled && settings.islamicReminders?.channelId), 'Scheduled reminders have a destination.'],
+    ['Voice rooms', Boolean(settings.joinToCreateChannelId && settings.afkChannelId && settings.afkRoleId), 'Join-to-create and AFK voice systems are ready.']
   ];
   const renderWizard = (settings) => {
     const items = checklist(settings);
