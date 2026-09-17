@@ -260,7 +260,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     const source = request.body || {};
     const id = String(source.id || source.name || `ticket-${Date.now()}`).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 32) || `ticket-${Date.now()}`;
     if (settings.ticketSystems.some((system) => system.id === id)) return response.status(409).json({ error: 'A ticket system with that ID already exists.' });
-    const system = { id, name: source.name || 'New ticket system', title: source.title || 'Need help?', description: source.description || 'Click the button below to open a private ticket.', buttonLabel: source.buttonLabel || 'Open a Ticket', buttonStyle: source.buttonStyle || 'Primary', namePrefix: source.namePrefix || id, welcomeTitle: source.welcomeTitle || 'Ticket opened', welcomeMessage: source.welcomeMessage || 'Thanks for reaching out, {user}.', closeLabel: source.closeLabel || 'Close Ticket', staffRoleId: source.staffRoleId || null, enabled: true, categoryId: null, panelChannelId: null, panelMessageId: null };
+    const system = { id, name: source.name || 'New ticket system', title: source.title || 'Need help?', description: source.description || 'Click the button below to open a private ticket.', buttonLabel: source.buttonLabel || 'Open a Ticket', buttonStyle: source.buttonStyle || 'Primary', namePrefix: source.namePrefix || id, welcomeTitle: source.welcomeTitle || 'Ticket opened', welcomeMessage: source.welcomeMessage || 'Thanks for reaching out, {user}.', closeLabel: source.closeLabel || 'Close Ticket', staffRoleId: source.staffRoleId || null, categories: Array.isArray(source.categories) ? source.categories : [], enabled: true, categoryId: null, panelChannelId: null, panelMessageId: null };
     settings.ticketSystems.push(system);
     await request.app.locals.createTicketSetup(guild, system);
     return response.status(201).json(system);
@@ -271,7 +271,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     const settings = getGuildData(guild.id);
     const system = settings.ticketSystems.find((item) => item.id === request.params.systemId);
     if (!system) return response.status(404).json({ error: 'Ticket system not found.' });
-    const allowed = ['name', 'title', 'description', 'buttonLabel', 'buttonStyle', 'namePrefix', 'welcomeTitle', 'welcomeMessage', 'closeLabel', 'staffRoleId', 'enabled', 'categoryId', 'panelChannelId'];
+    const allowed = ['name', 'title', 'description', 'buttonLabel', 'buttonStyle', 'namePrefix', 'welcomeTitle', 'welcomeMessage', 'closeLabel', 'staffRoleId', 'categories', 'enabled', 'categoryId', 'panelChannelId'];
     for (const key of allowed) if (request.body[key] !== undefined) system[key] = request.body[key];
     if (!system.namePrefix || /[^a-z0-9-]/i.test(system.namePrefix)) return response.status(400).json({ error: 'Ticket name prefix may contain only letters, numbers, and hyphens.' });
     if (!['Primary', 'Secondary', 'Success', 'Danger'].includes(system.buttonStyle)) return response.status(400).json({ error: 'Invalid ticket button style.' });

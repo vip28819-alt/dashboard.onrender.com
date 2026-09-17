@@ -97,6 +97,7 @@ export function normalizeTicketSettings(settings) {
     welcomeTitle: next.ticketWelcomeTitle,
     welcomeMessage: next.ticketWelcomeMessage,
     closeLabel: next.ticketCloseLabel,
+    categories: [],
     enabled: true
   };
   const systems = Array.isArray(next.ticketSystems) ? next.ticketSystems : [];
@@ -117,6 +118,12 @@ export function normalizeTicketSettings(settings) {
     welcomeMessage: cleanMessage(system.welcomeMessage || legacy.welcomeMessage, 4000),
     closeLabel: cleanMessage(system.closeLabel || legacy.closeLabel, 80) || 'Close Ticket',
     staffRoleId: system.staffRoleId || null,
+    categories: (Array.isArray(system.categories) ? system.categories : []).map((category, categoryIndex) => ({
+      id: String(category.id || `category-${categoryIndex + 1}`).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 32) || `category-${categoryIndex + 1}`,
+      label: cleanMessage(category.label || `Category ${categoryIndex + 1}`, 80),
+      description: cleanMessage(category.description || '', 100),
+      prefix: String(category.prefix || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 18)
+    })).slice(0, 25),
     enabled: system.enabled !== false
   })).slice(0, 20);
   const primary = next.ticketSystems[0] || legacy;

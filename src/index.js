@@ -9,6 +9,7 @@ import {
   AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   EmbedBuilder,
   Events,
   GatewayIntentBits,
@@ -391,6 +392,7 @@ async function createTicketChannel(guild, user, settings, system = settings.tick
   }
   const channel = await guild.channels.create({
     name: `${prefix}-${user.username}`.toLowerCase().slice(0, 90),
+    topic: `ticket-owner:${user.id}`,
     parent: category?.type === ChannelType.GuildCategory ? category.id : undefined,
     permissionOverwrites: [
       { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
@@ -398,7 +400,8 @@ async function createTicketChannel(guild, user, settings, system = settings.tick
       ...(system.staffRoleId ? [{ id: system.staffRoleId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }] : [])
     ]
   });
-  await channel.send({ embeds: [embed(system.welcomeTitle || settings.ticketWelcomeTitle, replaceTokens(system.welcomeMessage || settings.ticketWelcomeMessage, user, guild), 0x57f287)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`ticket_close:${system.id || 'default'}`).setLabel(system.closeLabel || settings.ticketCloseLabel).setStyle(ButtonStyle.Danger))] });
+  const controls = [new ButtonBuilder().setCustomId(`ticket_close:${system.id || 'default'}`).setLabel(system.closeLabel || settings.ticketCloseLabel).setStyle(ButtonStyle.Danger)];
+  await channel.send({ embeds: [embed(system.welcomeTitle || settings.ticketWelcomeTitle, replaceTokens(system.welcomeMessage || settings.ticketWelcomeMessage, user, guild), 0x57f287)], components: [new ActionRowBuilder().addComponents(controls)] });
   return channel;
 }
 async function createTicketSetup(guild, requestedSystem = null) {
@@ -413,7 +416,10 @@ async function createTicketSetup(guild, requestedSystem = null) {
   const ticketCategory = category?.type === ChannelType.GuildCategory ? category : await guild.channels.create({ name: `${safeName}-tickets`, type: ChannelType.GuildCategory, permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }] });
   const panelChannel = panel?.isTextBased() ? panel : await guild.channels.create({ name: `open-${safeName}`, type: ChannelType.GuildText, topic: 'Use the button below to open a private ticket.', permissionOverwrites: [{ id: guild.roles.everyone.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory], deny: [PermissionsBitField.Flags.SendMessages] }] });
   const buttonStyle = ButtonStyle[system.buttonStyle || settings.ticketButtonStyle] || ButtonStyle.Primary;
-  const panelPayload = { embeds: [embed(system.title || settings.ticketPanelTitle, system.description || settings.ticketPanelDescription, 0x5865f2)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`ticket_open:${system.id || 'default'}`).setLabel(system.buttonLabel || settings.ticketButtonLabel).setStyle(buttonStyle))] };
+  const panelComponents = system.categories?.length
+    ? [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`ticket_category:${system.id || 'default'}`).setPlaceholder('اختر نوع التذكرة').addOptions(system.categories.slice(0, 25).map((category) => ({ label: category.label, value: category.id, description: category.description || undefined }))))]
+    : [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`ticket_open:${system.id || 'default'}`).setLabel(system.buttonLabel || settings.ticketButtonLabel).setStyle(buttonStyle))];
+  const panelPayload = { embeds: [embed(system.title || settings.ticketPanelTitle, system.description || settings.ticketPanelDescription, 0x5865f2)], components: panelComponents };
   if (system.panelMessageId) {
     const panelMessage = await panelChannel.messages.fetch(system.panelMessageId).catch(() => null);
     if (panelMessage) await panelMessage.edit(panelPayload);
@@ -929,6 +935,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       console.error(`Could not verify ${interaction.user.tag} in ${interaction.guild.name}:`, error.message);
       return interaction.reply({ content: 'I could not assign the verified role. Please contact an administrator.', ephemeral: true });
     }
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_category:')) {
+      try {
+        const systemId = interaction.customId.split(':')[1] || 'default';
+        const system = settings.ticketSystems?.find((item) => item.id === systemId) || settings.ticketSystems?.[0] || settings;
+        const category = system.categories?.find((item) => item.id === interaction.values[0]);
+        const channel = await createTicketChannel(interaction.guild, interaction.user, settings, { ...system, namePrefix: category?.prefix || system.namePrefix });
+        await sendLog(interaction.guild, 'Ticket opened', `${interaction.user.tag} opened ${channel} (${category?.label || 'General'}).`);
+        return interaction.reply({ content: `تم إنشاء تذكرتك الخاصة: ${channel}`, ephemeral: true });
+      } catch (error) {
+        console.error('Could not create categorized ticket:', error.message);
+        return interaction.reply({ content: 'I could not create your ticket. Check my Manage Channels permission.', ephemeral: true });
+      }
+    }
   }
   if (interaction.isButton() && interaction.customId.startsWith('ticket_open')) {
     try {
@@ -950,9 +969,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await sendTicketTranscript(interaction.guild, interaction.channel, system.id, interaction.user);
     await sendLog(interaction.guild, 'Ticket transcript', `${interaction.user.tag} generated a transcript for ${interaction.channel} before closing it.`);
     await sendLog(interaction.guild, 'Ticket closed', `${interaction.user.tag} closed ${interaction.channel}.`);
-    await interaction.reply('This ticket will be closed in a few seconds.');
-    setTimeout(() => interaction.channel.delete('Ticket closed').catch(() => {}), 3000);
+    const ownerId = interaction.channel.topic?.match(/^ticket-owner:(\d+)$/)?.[1];
+    const ratingButtons = [1, 2, 3, 4, 5].map((rating) => new ButtonBuilder().setCustomId(`ticket_rate:${ownerId || interaction.user.id}:${rating}`).setLabel(`${rating}/5`).setStyle(rating >= 4 ? ButtonStyle.Success : rating >= 3 ? ButtonStyle.Secondary : ButtonStyle.Danger));
+    await interaction.reply({ content: 'تم إغلاق التذكرة. قيّم خدمة الدعم قبل حذف الروم.', components: [new ActionRowBuilder().addComponents(ratingButtons)] });
+    setTimeout(() => interaction.channel.delete('Ticket closed').catch(() => {}), 30000);
     return;
+  }
+  if (interaction.isButton() && interaction.customId.startsWith('ticket_rate:')) {
+    const [, ownerId, rating] = interaction.customId.split(':');
+    if (interaction.user.id !== ownerId) return interaction.reply({ content: 'التقييم متاح لصاحب التذكرة فقط.', ephemeral: true });
+    await sendLog(interaction.guild, 'Ticket rating', `${interaction.user.tag} rated the support service **${rating}/5** in ${interaction.channel}.`);
+    return interaction.update({ content: `شكراً لتقييمك: **${rating}/5**`, components: [] });
   }
   if (!interaction.isChatInputCommand()) return;
   const name = interaction.commandName;
