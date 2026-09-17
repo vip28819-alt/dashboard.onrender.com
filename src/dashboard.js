@@ -1,6 +1,7 @@
 ﻿import express from 'express';
 import { ChannelType } from 'discord.js';
 import { dashboardPage } from './dashboard-ui.js';
+import { infoPage } from './info-ui.js';
 import { getGuildSnapshot, getCommandCatalog, serializeSettingsForApi } from './bot-refinements.js';
 import crypto from 'node:crypto';
 
@@ -71,7 +72,8 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     return next();
   };
   app.use(express.json());
-  app.get('/', (_request, response) => response.type('html').send(dashboardPage));
+  app.get('/', (_request, response) => response.type('html').send(infoPage));
+  app.get('/dashboard', (_request, response) => response.type('html').send(dashboardPage));
   app.get('/health', (_request, response) => response.json({ ok: true, uptime: process.uptime(), guilds: client.guilds.cache.size, timestamp: new Date().toISOString() }));
   app.get('/auth/login', (_request, response) => {
     if (!clientId || !clientSecret || !redirectUri) return response.status(503).send('Dashboard OAuth is not configured.');
@@ -97,7 +99,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
         `dashboard_session=${sessionId}; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=28800`,
         'dashboard_oauth_state=; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=0'
       ]);
-      return response.redirect('/');
+      return response.redirect('/dashboard');
     } catch (error) {
       return response.status(502).send(`Discord sign-in failed: ${error.message}`);
     }
@@ -106,7 +108,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     const cookies = parseCookies(request.headers.cookie);
     if (cookies.dashboard_session) sessions.delete(cookies.dashboard_session);
     response.setHeader('Set-Cookie', 'dashboard_session=; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=0');
-    return response.redirect('/');
+    return response.redirect('/dashboard');
   });
   app.use('/api', requireAuth);
   app.get('/api/guilds', requireAuth, (request, response) => response.json(permittedGuilds(request.dashboardSession).map((guild) => ({ id: guild.id, name: guild.name }))));
