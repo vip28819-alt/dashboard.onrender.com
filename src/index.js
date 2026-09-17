@@ -192,7 +192,7 @@ function commandGuide() {
     return `\`/${json.name}\`${subcommands} — ${json.description} (${groups[json.name] || 'general'})`;
   }).join('\n');
 }
-const featureGuide = 'Features: moderation and AutoMod, anti-raid protection, complete /setup all provisioning, welcome cards and verification, tickets with categories/transcripts/ratings, leveling and member profiles, clans, join-to-create voice rooms, AFK roles, economy daily rewards, suggestions and voting, server logs, and scheduled Islamic reminders.';
+const featureGuide = 'Features: moderation and AutoMod, anti-raid protection, complete /setup all provisioning, welcome cards and verification, tickets with categories/transcripts/ratings, leveling and member profiles, clans and clan wars/shop rooms, join-to-create voice rooms, AFK roles, economy and shop rooms, suggestions and voting, games and events, voice leaderboards, server logs, and scheduled Islamic reminders.';
 function welcomeCard(member) {
   const server = member.guild.name.replace(/[<&>"]/g, '');
   const user = member.user.username.replace(/[<&>"]/g, '');
@@ -469,19 +469,47 @@ async function createServerSetup(guild) {
     quarantine = await guild.roles.create({ name: 'Quarantine', color: 0xed4245, reason: 'Server Control security setup' });
     settings.quarantineRoleId = quarantine.id;
   }
-  const findText = (name) => guild.channels.cache.find((channel) => channel.type === ChannelType.GuildText && channel.name === name);
-  const makeText = async (name, topic) => findText(name) || guild.channels.create({ name, type: ChannelType.GuildText, topic, permissionOverwrites: [{ id: everyone.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }] });
-  const findVoice = (name) => guild.channels.cache.find((channel) => [ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type) && channel.name === name);
-  const makeVoice = async (name, topic) => findVoice(name) || guild.channels.create({ name, type: ChannelType.GuildVoice, topic });
+  const findText = (name, parentId = null) => guild.channels.cache.find((channel) => channel.type === ChannelType.GuildText && channel.name === name && (!parentId || channel.parentId === parentId));
+  const makeText = async (name, topic, parentId = null) => findText(name, parentId) || guild.channels.create({ name, type: ChannelType.GuildText, topic, parent: parentId || undefined, permissionOverwrites: [{ id: everyone.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }] });
+  const findVoice = (name, parentId = null) => guild.channels.cache.find((channel) => [ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type) && channel.name === name && (!parentId || channel.parentId === parentId));
+  const makeVoice = async (name, topic, parentId = null) => findVoice(name, parentId) || guild.channels.create({ name, type: ChannelType.GuildVoice, topic, parent: parentId || undefined });
+  const findCategory = (name) => guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === name);
+  const makeCategory = async (name) => findCategory(name) || guild.channels.create({ name, type: ChannelType.GuildCategory });
   const findRole = (name) => guild.roles.cache.find((role) => !role.managed && role.name === name);
   const makeRole = async (name, color) => findRole(name) || guild.roles.create({ name, color, reason: 'Server Control complete setup' });
-  const rules = await makeText('rules', 'Server rules and community standards.');
-  const welcome = await makeText('welcome', 'Welcome messages for new members.');
-  const verification = await makeText('verification', 'Verify here to receive access to the server.');
-  const suggestions = await makeText('suggestions', 'Community suggestions and voting.');
-  const reminders = await makeText('reminders', 'Scheduled Islamic reminders.');
-  const joinToCreate = await makeVoice('join-to-create', 'Join this channel to create a private voice room.');
-  const afk = await makeVoice('afk', 'Members in this channel receive the AFK role.');
+  const setupFailures = [];
+  const provision = async (label, action) => {
+    try { return await action(); } catch (error) {
+      setupFailures.push(`${label}: ${error.message}`);
+      console.error(`Could not provision ${label} in ${guild.name}:`, error.message);
+      return null;
+    }
+  };
+  const communityCategory = await provision('Community category', () => makeCategory('Community'));
+  const supportCategory = await provision('Support category', () => makeCategory('Support'));
+  const voiceCategory = await provision('Voice category', () => makeCategory('Voice'));
+  const activitiesCategory = await provision('Activities category', () => makeCategory('Activities'));
+  const islamicCategory = await provision('Islamic category', () => makeCategory('Islamic'));
+  const rules = await provision('rules channel', () => makeText('rules', 'Server rules and community standards.', communityCategory?.id));
+  const welcome = await provision('welcome channel', () => makeText('welcome', 'Welcome messages for new members.', communityCategory?.id));
+  const verification = await provision('verification channel', () => makeText('verification', 'Verify here to receive access to the server.', communityCategory?.id));
+  const suggestions = await provision('suggestions channel', () => makeText('suggestions', 'Community suggestions and voting.', communityCategory?.id));
+  const reminders = await provision('reminders channel', () => makeText('reminders', 'Scheduled Islamic reminders.', islamicCategory?.id));
+  const quran = await provision('quran channel', () => makeVoice('quran', 'Quran audio channel.', islamicCategory?.id));
+  const joinToCreate = await provision('join-to-create channel', () => makeVoice('join-to-create', 'Join this channel to create a private voice room.', voiceCategory?.id));
+  const afk = await provision('afk channel', () => makeVoice('afk', 'Members in this channel receive the AFK role.', voiceCategory?.id));
+  const clans = await provision('clans channel', () => makeText('clans', 'Clan announcements and activity.', activitiesCategory?.id));
+  const clanWars = await provision('clan wars channel', () => makeText('clan-wars', 'Weekly clan competitions and results.', activitiesCategory?.id));
+  const clanShop = await provision('clan shop channel', () => makeText('clan-shop', 'Clan upgrades and rewards.', activitiesCategory?.id));
+  const games = await provision('games channel', () => makeText('games', 'Community games and events.', activitiesCategory?.id));
+  const events = await provision('events channel', () => makeText('events', 'Server events and mini-games.', activitiesCategory?.id));
+  const suggestionsReview = await provision('suggestions review channel', () => makeText('suggestions-review', 'Suggestion review for staff.', supportCategory?.id));
+  const economy = await provision('economy', () => makeText('economy', 'Economy and shop announcements.', activitiesCategory?.id));
+  const shop = await provision('shop channel', () => makeText('shop', 'Server roles, rewards, and daily economy announcements.', activitiesCategory?.id));
+  const ticketArchive = await provision('ticket archive channel', () => makeText('ticket-archive', 'Closed ticket transcripts for senior staff.', supportCategory?.id));
+  const ticketRatings = await provision('ticket ratings channel', () => makeText('ticket-ratings', 'Support service ratings for senior staff.', supportCategory?.id));
+  const moderationAlerts = await provision('moderation alerts channel', () => makeText('moderation-alerts', 'Auto-moderation, anti-raid, and protection alerts.', supportCategory?.id));
+  const voiceLeaderboard = await provision('voice leaderboard channel', () => makeText('voice-leaderboard', 'Weekly voice activity leaderboard.', activitiesCategory?.id));
   const verifiedRole = await makeRole('Verified', 0x57f287);
   const afkRole = await makeRole('AFK', 0x95a5a6);
   const logChannels = [];
@@ -495,27 +523,27 @@ async function createServerSetup(guild) {
     }
   }
   settings.logChannelId = logChannels[0]?.id || settings.logChannelId;
-  settings.rulesChannelId = rules.id;
-  settings.welcomeChannelId = welcome.id;
-  settings.verificationChannelId = verification.id;
-  settings.suggestionsChannelId = suggestions.id;
-  settings.joinToCreateChannelId = joinToCreate.id;
-  settings.afkChannelId = afk.id;
+  settings.rulesChannelId = rules?.id || settings.rulesChannelId;
+  settings.welcomeChannelId = welcome?.id || settings.welcomeChannelId;
+  settings.verificationChannelId = verification?.id || settings.verificationChannelId;
+  settings.suggestionsChannelId = suggestions?.id || settings.suggestionsChannelId;
+  settings.joinToCreateChannelId = joinToCreate?.id || settings.joinToCreateChannelId;
+  settings.afkChannelId = afk?.id || settings.afkChannelId;
   settings.verifiedRoleId = verifiedRole.id;
   settings.afkRoleId = afkRole.id;
   settings.welcomeCardEnabled = true;
   settings.verificationEnabled = true;
   settings.security.antiBotJoin = true;
   settings.security.antiPrivilegeChanges = true;
-  settings.islamicReminders = { ...settings.islamicReminders, enabled: true, channelId: reminders.id, hourly: true, friday: true };
+  settings.islamicReminders = { ...settings.islamicReminders, enabled: true, channelId: reminders?.id || settings.islamicReminders.channelId, hourly: true, friday: true };
   settings.rulesText = settings.rulesText || 'Be respectful, follow Discord rules, and keep this community welcoming.';
-  await rules.send({ embeds: [guildEmbed(guild, 'Server rules', settings.rulesText, 0xfee75c)] }).catch(() => {});
+  if (rules) await rules.send({ embeds: [guildEmbed(guild, 'Server rules', settings.rulesText, 0xfee75c)] }).catch(() => {});
   await createTicketSetup(guild);
   if (settings.verificationMessageId) {
-    const existingVerification = await verification.messages.fetch(settings.verificationMessageId).catch(() => null);
+    const existingVerification = verification && await verification.messages.fetch(settings.verificationMessageId).catch(() => null);
     if (!existingVerification) settings.verificationMessageId = null;
   }
-  if (!settings.verificationMessageId) await publishVerificationPanel(guild, settings);
+  if (!settings.verificationMessageId && verification) await publishVerificationPanel(guild, settings);
   saveData();
   return {
     quarantineRoleId: quarantine.id,
@@ -525,15 +553,29 @@ async function createServerSetup(guild) {
     logCategoryId: settings.logCategoryId,
     logChannels: logChannels.length,
     logFailures,
-    rulesChannelId: rules.id,
-    welcomeChannelId: welcome.id,
-    verificationChannelId: verification.id,
-    suggestionsChannelId: suggestions.id,
-    remindersChannelId: reminders.id,
-    joinToCreateChannelId: joinToCreate.id,
-    afkChannelId: afk.id,
+    rulesChannelId: rules?.id,
+    welcomeChannelId: welcome?.id,
+    verificationChannelId: verification?.id,
+    suggestionsChannelId: suggestions?.id,
+    remindersChannelId: reminders?.id,
+    quranChannelId: quran?.id,
+    joinToCreateChannelId: joinToCreate?.id,
+    afkChannelId: afk?.id,
+    clansChannelId: clans?.id,
+    clanWarsChannelId: clanWars?.id,
+    clanShopChannelId: clanShop?.id,
+    gamesChannelId: games?.id,
+    eventsChannelId: events?.id,
+    suggestionsReviewChannelId: suggestionsReview?.id,
+    economyChannelId: economy?.id,
+    shopChannelId: shop?.id,
+    ticketArchiveChannelId: ticketArchive?.id,
+    ticketRatingsChannelId: ticketRatings?.id,
+    moderationAlertsChannelId: moderationAlerts?.id,
+    voiceLeaderboardChannelId: voiceLeaderboard?.id,
     ticketCategoryId: settings.ticketCategoryId,
-    ticketPanelChannelId: settings.ticketPanelChannelId
+    ticketPanelChannelId: settings.ticketPanelChannelId,
+    setupFailures: [...setupFailures, ...logFailures]
   };
 }
 
@@ -1283,7 +1325,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (name === 'roll') { const sides = interaction.options.getInteger('sides') || 6; return interaction.reply(`🎲 **${Math.floor(Math.random() * sides) + 1}** (1-${sides})`); }
     if (name === 'rep') { const user = interaction.options.getUser('user'); if (user.id === interaction.user.id) return interaction.reply({ content: 'You cannot give reputation to yourself.', ephemeral: true }); settings.rep[user.id] = (settings.rep[user.id] || 0) + 1; saveData(); return interaction.reply(`⭐ ${user} now has **${settings.rep[user.id]}** reputation.`); }
     if (name === 'selfrole') { const role = interaction.options.getRole('role'); if (!settings.selfAssignableRoleIds.includes(role.id)) return interaction.reply({ content: 'That role is not enabled for self-assignment. An administrator can add it in the dashboard.', ephemeral: true }); if (role.position >= interaction.guild.members.me.roles.highest.position) return interaction.reply({ content: 'That role is above my highest role.', ephemeral: true }); const hasRole = interaction.member.roles.cache.has(role.id); await interaction.member.roles[hasRole ? 'remove' : 'add'](role); return interaction.reply(`${hasRole ? 'Removed' : 'Added'} **${role.name}** ${hasRole ? 'from' : 'to'} your profile.`); }
-    if (name === 'setup') { const sub = interaction.options.getSubcommand(); if (sub === 'all') { const result = await createServerSetup(interaction.guild); const failureText = result.logFailures.length ? `\n\nFailed log channels:\n${result.logFailures.map((failure) => `• ${failure}`).join('\n')}` : ''; return interaction.editReply(`Complete server setup finished.\nLog category: <#${result.logCategoryId}>\nLog channels created/reused: **${result.logChannels}/${logEventKeys.length}**\nRules: <#${result.rulesChannelId}>\nWelcome: <#${result.welcomeChannelId}>\nVerification: <#${result.verificationChannelId}> (role <@&${result.verifiedRoleId}>)\nSuggestions: <#${result.suggestionsChannelId}>\nReminders: <#${result.remindersChannelId}>\nJoin to create: <#${result.joinToCreateChannelId}>\nAFK: <#${result.afkChannelId}> (role <@&${result.afkRoleId}>)\nTicket category: <#${result.ticketCategoryId}>${failureText}`); } if (sub === 'welcome') settings.welcomeChannelId = interaction.options.getChannel('channel').id; if (sub === 'logs') { const event = interaction.options.getString('event'); const keys = event === 'all' ? logEventKeys : [event]; for (const key of keys) await ensurePrivateLogChannel(interaction.guild, key); settings.logChannelId = settings.logChannels[keys[0]] || settings.logChannelId; } if (sub === 'rules') { settings.rulesChannelId = interaction.options.getChannel('channel').id; settings.rulesText = interaction.options.getString('text'); } if (sub === 'ticket') await createTicketSetup(interaction.guild); if (sub === 'security') { settings.security.antiSpam = interaction.options.getBoolean('spam'); settings.security.antiInvite = interaction.options.getBoolean('invites'); settings.security.antiCaps = interaction.options.getBoolean('caps'); settings.security.antiRaid = interaction.options.getBoolean('raid'); } if (sub === 'prefix') { const value = interaction.options.getString('value').trim(); if (/\s/.test(value)) return interaction.editReply({ content: 'The prefix cannot contain spaces.' }); settings.prefix = value; } if (sub === 'automod') settings.automod = interaction.options.getBoolean('enabled'); saveData(); return interaction.editReply(sub === 'logs' ? `Private log channels created for **${interaction.options.getString('event')}** inside the **Server Logs** category.` : `Updated **${sub}** settings. Text commands now use **${settings.prefix}**.`); }
+    if (name === 'setup') { const sub = interaction.options.getSubcommand(); if (sub === 'all') { const result = await createServerSetup(interaction.guild); const failures = result.setupFailures || result.logFailures || []; const failureText = failures.length ? `\n\nCould not provision:\n${failures.map((failure) => `• ${failure}`).join('\n')}` : ''; return interaction.editReply(`Complete server setup finished.\nLog category: <#${result.logCategoryId}>\nLog channels created/reused: **${result.logChannels}/${logEventKeys.length}**\nRules: <#${result.rulesChannelId || settings.rulesChannelId}>\nWelcome: <#${result.welcomeChannelId || settings.welcomeChannelId}>\nVerification: <#${result.verificationChannelId || settings.verificationChannelId}> (role <@&${result.verifiedRoleId}>)\nSuggestions: <#${result.suggestionsChannelId}>\nReminders: <#${result.remindersChannelId}>\nQuran voice: <#${result.quranChannelId}>\nJoin to create: <#${result.joinToCreateChannelId}>\nAFK: <#${result.afkChannelId}> (role <@&${result.afkRoleId}>)\nClans: <#${result.clansChannelId}> | Wars: <#${result.clanWarsChannelId}> | Shop: <#${result.clanShopChannelId}>\nGames: <#${result.gamesChannelId}> | Events: <#${result.eventsChannelId}>\nEconomy: <#${result.economyChannelId}> | Shop: <#${result.shopChannelId}>\nVoice leaderboard: <#${result.voiceLeaderboardChannelId}>\nTicket category: <#${result.ticketCategoryId}> | Archive: <#${result.ticketArchiveChannelId}> | Ratings: <#${result.ticketRatingsChannelId}>\nModeration alerts: <#${result.moderationAlertsChannelId}>${failureText}`); } if (sub === 'welcome') settings.welcomeChannelId = interaction.options.getChannel('channel').id; if (sub === 'logs') { const event = interaction.options.getString('event'); const keys = event === 'all' ? logEventKeys : [event]; for (const key of keys) await ensurePrivateLogChannel(interaction.guild, key); settings.logChannelId = settings.logChannels[keys[0]] || settings.logChannelId; } if (sub === 'rules') { settings.rulesChannelId = interaction.options.getChannel('channel').id; settings.rulesText = interaction.options.getString('text'); } if (sub === 'ticket') await createTicketSetup(interaction.guild); if (sub === 'security') { settings.security.antiSpam = interaction.options.getBoolean('spam'); settings.security.antiInvite = interaction.options.getBoolean('invites'); settings.security.antiCaps = interaction.options.getBoolean('caps'); settings.security.antiRaid = interaction.options.getBoolean('raid'); } if (sub === 'prefix') { const value = interaction.options.getString('value').trim(); if (/\s/.test(value)) return interaction.editReply({ content: 'The prefix cannot contain spaces.' }); settings.prefix = value; } if (sub === 'automod') settings.automod = interaction.options.getBoolean('enabled'); saveData(); return interaction.editReply(sub === 'logs' ? `Private log channels created for **${interaction.options.getString('event')}** inside the **Server Logs** category.` : `Updated **${sub}** settings. Text commands now use **${settings.prefix}**.`); }
     if (name === 'ticket') { const channel = await createTicketChannel(interaction.guild, interaction.user, settings); await sendLog(interaction.guild, 'Ticket opened', `${interaction.user.tag} opened ${channel}.`); return interaction.reply({ content: `Your private ticket is ready: ${channel}`, ephemeral: true }); }
   } catch (error) { if (error?.code === 10062 || error?.rawError?.code === 10062) return; console.error(error); const response = { content: 'Something went wrong while running that command.', ephemeral: true }; try { if (interaction.deferred) await interaction.editReply(response); else if (interaction.replied) await interaction.followUp(response); else await interaction.reply(response); } catch (replyError) { if (replyError?.code !== 10062) console.error('Could not respond to interaction:', replyError); } }
 });
