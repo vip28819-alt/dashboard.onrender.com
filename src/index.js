@@ -78,7 +78,8 @@ const defaults = {
   blockedWords: (process.env.BLOCKED_WORDS || '').split(',').map((word) => word.trim().toLowerCase()).filter(Boolean),
   levelUp: true,
   warnings: {},
-  xp: {}
+  xp: {},
+  memberStats: {}
 };
 
 function loadData() {
@@ -105,6 +106,7 @@ function saveCopyState() {
 }
 const spamTracker = new Map();
 const raidTracker = new Map();
+const voiceSessions = new Map();
 function getGuildData(guildId) {
   guildData[guildId] ??= structuredClone(defaults);
   guildData[guildId].prefix = typeof guildData[guildId].prefix === 'string' && guildData[guildId].prefix.trim() ? guildData[guildId].prefix.trim() : defaults.prefix;
@@ -132,6 +134,7 @@ function getGuildData(guildId) {
   for (const key of ['ticketPanelChannelId', 'ticketPanelMessageId', 'ticketPanelTitle', 'ticketPanelDescription', 'ticketButtonLabel', 'ticketButtonStyle', 'ticketNamePrefix', 'ticketWelcomeTitle', 'ticketWelcomeMessage', 'ticketCloseLabel']) guildData[guildId][key] ??= defaults[key];
   guildData[guildId].warnings ??= {};
   guildData[guildId].xp ??= {};
+  guildData[guildId].memberStats ??= {};
   guildData[guildId].blockedWords ??= [];
   guildData[guildId] = normalizeGuildSettings(guildData[guildId]);
   return guildData[guildId];
@@ -160,6 +163,45 @@ function getXpRank(settings, userId) {
   const rows = Object.entries(settings.xp).sort(([, first], [, second]) => (second.xp || 0) - (first.xp || 0));
   const position = rows.findIndex(([id]) => id === userId);
   return position === -1 ? null : position + 1;
+}
+function getMemberStats(settings, userId) {
+  settings.memberStats[userId] ??= { messages: 0, voiceSeconds: 0, voiceXp: 0 };
+  const stats = settings.memberStats[userId];
+  stats.messages = Number(stats.messages) || 0;
+  stats.voiceSeconds = Number(stats.voiceSeconds) || 0;
+  stats.voiceXp = Number(stats.voiceXp) || Math.floor(stats.voiceSeconds / 60);
+  return stats;
+}
+function getVoiceLevel(voiceXp) {
+  return Math.floor(Math.sqrt(Math.max(0, Number(voiceXp) || 0) / 100));
+}
+function getVoiceRank(settings, userId) {
+  const rows = Object.entries(settings.memberStats || {}).sort(([, first], [, second]) => (second.voiceXp || 0) - (first.voiceXp || 0));
+  const position = rows.findIndex(([id]) => id === userId);
+  return position === -1 ? null : position + 1;
+}
+function profileEmbed(guild, user, member, settings) {
+  const record = settings.xp[user.id] || { xp: 0, level: 0 };
+  const stats = getMemberStats(settings, user.id);
+  const activeSession = voiceSessions.get(`${guild.id}:${user.id}`);
+  const liveVoiceSeconds = stats.voiceSeconds + (activeSession ? Math.max(0, Math.floor((Date.now() - activeSession.startedAt) / 1000)) : 0);
+  const liveVoiceXp = Math.floor(liveVoiceSeconds / 60);
+  const voiceLevel = getVoiceLevel(liveVoiceXp);
+  const roles = member?.roles?.cache.filter((role) => role.id !== guild.id).map((role) => role.name).slice(0, 8) || [];
+  const profile = embed(`${user.username}'s profile`, `Member profile and activity overview for **${guild.name}**.`).setThumbnail(user.displayAvatarURL({ size: 256 }));
+  profile.addFields(
+    { name: 'Chat level', value: `**${record.level || 0}**`, inline: true },
+    { name: 'Chat XP', value: `**${record.xp || 0}**`, inline: true },
+    { name: 'Chat rank', value: getXpRank(settings, user.id) ? `**#${getXpRank(settings, user.id)}**` : '**Unranked**', inline: true },
+    { name: 'Messages sent', value: `**${stats.messages}**`, inline: true },
+    { name: 'VC level', value: `**${voiceLevel}**`, inline: true },
+    { name: 'VC hours', value: `**${(liveVoiceSeconds / 3600).toFixed(1)}**`, inline: true },
+    { name: 'VC rank', value: getVoiceRank(settings, user.id) ? `**#${getVoiceRank(settings, user.id)}**` : '**Unranked**', inline: true },
+    { name: 'Reputation', value: `**${settings.rep[user.id] || 0}**`, inline: true },
+    { name: 'Joined server', value: member?.joinedTimestamp ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:D>` : 'Unknown', inline: true },
+    { name: 'Roles', value: roles.length ? roles.map((role) => `\`${role}\``).join(', ') : 'No additional roles', inline: false }
+  );
+  return profile;
 }
 async function sendLog(guild, title, description, color = 0x5865f2) {
   const settings = getGuildData(guild.id);
@@ -494,7 +536,7 @@ const commands = [
   new SlashCommandBuilder().setName('ticket').setDescription('Open a private support ticket')
 ].map((command) => command.toJSON());
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.MessageContent] });
 client.commands = new Collection();
 process.once('SIGINT', () => { removePidFile(); client.destroy(); process.exit(0); });
 process.once('SIGTERM', () => { removePidFile(); client.destroy(); process.exit(0); });
@@ -594,6 +636,8 @@ client.on(Events.RoleUpdate, async (before, after) => {
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
   const settings = getGuildData(message.guild.id);
+  getMemberStats(settings, message.author.id).messages += 1;
+  saveData();
   const matchingReply = settings.autoReplies.find((entry) => entry.enabled !== false && message.content.toLowerCase().includes(entry.trigger.toLowerCase()));
   if (matchingReply) await message.reply(matchingReply.response).catch(() => {});
   const prefix = settings.prefix;
@@ -610,7 +654,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (commandName === 'rules') return message.reply({ embeds: [embed('Server rules', settings.rulesText, 0xfee75c)] });
     if (commandName === 'security') return message.reply({ embeds: [embed('Security status', `Anti-spam: **${settings.security.antiSpam ? 'ON' : 'OFF'}**\nAnti-invite: **${settings.security.antiInvite ? 'ON' : 'OFF'}**\nAnti-caps: **${settings.security.antiCaps ? 'ON' : 'OFF'}**\nAnti-raid: **${settings.security.antiRaid ? 'ON' : 'OFF'}**`)] });
     if (commandName === 'serverinfo') return message.reply({ embeds: [embed(message.guild.name, `Members: **${message.guild.memberCount}**\nChannels: **${message.guild.channels.cache.size}**`)] });
-    if (['level', 'profile', 'rank'].includes(commandName)) { const user = message.mentions.users.first() || message.author; const record = settings.xp[user.id] || { xp: 0, level: 0 }; const rank = getXpRank(settings, user.id); return message.reply({ embeds: [embed(`${user.username}'s profile`, `Level: **${record.level}**\nXP: **${record.xp}**\nRank: **${rank ? `#${rank}` : 'Unranked'}**\nProgress: **${record.xp % 100}/100**`).setThumbnail(user.displayAvatarURL())] }); }
+    if (['level', 'profile', 'rank'].includes(commandName)) { const user = message.mentions.users.first() || message.author; const member = await message.guild.members.fetch(user.id).catch(() => null); return message.reply({ embeds: [profileEmbed(message.guild, user, member, settings)] }); }
     if (['leaderboard', 'top'].includes(commandName)) { const rows = Object.entries(settings.xp).sort(([, first], [, second]) => second.xp - first.xp).slice(0, 10); return message.reply({ embeds: [embed('XP leaderboard', rows.length ? rows.map(([id, record], index) => `**${index + 1}.** <@${id}> - level ${record.level}, ${record.xp} XP`).join('\n') : 'No XP recorded yet.')] }); }
     if (commandName === 'roll') { const sides = Math.min(Math.max(Number(args[0]) || 6, 2), 1000); return message.reply(`🎲 **${Math.floor(Math.random() * sides) + 1}** (1-${sides})`); }
     if (commandName === 'rep') { const user = message.mentions.users.first(); if (!user || user.id === message.author.id) return message.reply(`Mention another member: ${prefix}rep @user`); settings.rep[ user.id ] = (settings.rep[user.id] || 0) + 1; saveData(); return message.reply(`⭐ ${user} now has **${settings.rep[user.id]}** reputation.`); }
@@ -706,6 +750,29 @@ client.on(Events.MessageCreate, async (message) => {
   saveData();
 });
 
+client.on(Events.VoiceStateUpdate, (before, after) => {
+  const member = after.member || before.member;
+  if (!member || member.user.bot || !after.guild) return;
+  const key = `${after.guild.id}:${member.id}`;
+  const settings = getGuildData(after.guild.id);
+  const wasInVoice = Boolean(before.channelId);
+  const isInVoice = Boolean(after.channelId);
+  if (!wasInVoice && isInVoice) {
+    voiceSessions.set(key, { startedAt: Date.now() });
+    return;
+  }
+  if (wasInVoice && !isInVoice) {
+    const session = voiceSessions.get(key);
+    if (!session) return;
+    const seconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
+    const stats = getMemberStats(settings, member.id);
+    stats.voiceSeconds += seconds;
+    stats.voiceXp = Math.floor(stats.voiceSeconds / 60);
+    voiceSessions.delete(key);
+    saveData();
+  }
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.guild) return;
   const settings = getGuildData(interaction.guild.id);
@@ -740,6 +807,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (name === 'setup' || name === 'log') await interaction.deferReply({ ephemeral: true });
     if (name === 'about') return interaction.reply({ embeds: [embed('Server Control', `A self-hosted moderation, protection, tickets, logging, AutoMod, leveling, and utility bot.\n\n**Dashboard:** [Open Server Control](${getDashboardUrl()})\n**Commands:** Use \`/help\` to see the command guide.\n**Status:** Online · ${client.guilds.cache.size} server${client.guilds.cache.size === 1 ? '' : 's'}`)] });
     if (name === 'help') return interaction.reply({ embeds: [embed('Bot commands', `Dashboard: [Open Server Control](${getDashboardUrl()})\n\n\`/setup prefix\` changes text commands; slash commands always use \`/\`\n\`/setup welcome\`, \`/setup rules\`, \`/setup logs\`, \`/setup ticket\`, \`/setup security\` configuration\n\`/copyserver source_server_id confirm:true\` copies and remembers a server structure\n\`/paste confirm:true\` pastes the last copied structure into this server\n\`/security\`, \`/blacklist\` server protection\n\`/ban\`, \`/kick\`, \`/timeout\`, \`/warn\`, \`/warnings\`, \`/clear\` moderation\n\`/lock\`, \`/unlock\`, \`/slowmode\`, \`/role\` server management\n\`/say\`, \`/announce\`, \`/ticket\`, \`/rules\` communication tools\n\`/level\`, \`/leaderboard\` XP system\n\`/ping\`, \`/serverinfo\`, \`/userinfo\`, \`/avatar\` utilities`)] });
+    if (['level', 'profile', 'rank'].includes(name)) {
+      const user = interaction.options.getUser('user') || interaction.user;
+      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+      return interaction.reply({ embeds: [profileEmbed(interaction.guild, user, member, settings)] });
+    }
     if (name === 'stop') {
       if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: 'Administrator permission is required to stop the bot.', ephemeral: true });
       await interaction.reply('Stopping the bot safely…');
