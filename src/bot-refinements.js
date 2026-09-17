@@ -2,11 +2,12 @@ const ALLOWED_BUTTON_STYLES = new Set(['Primary', 'Secondary', 'Success', 'Dange
 const COMMAND_GROUPS = {
   moderation: ['ban', 'kick', 'softban', 'timeout', 'unmute', 'warn', 'warnings', 'purge', 'clear', 'unban', 'nickname', 'quarantine'],
   protection: ['security', 'lock', 'unlock', 'lockdown', 'blacklist'],
-  community: ['ticket', 'rules', 'poll', 'remind', 'announce', 'say', 'selfrole', 'rep'],
-  utility: ['help', 'about', 'ping', 'serverinfo', 'userinfo', 'avatar', 'channelinfo', 'roleinfo', 'roll', 'log'],
+  community: ['ticket', 'rules', 'poll', 'remind', 'announce', 'say', 'selfrole', 'rep', 'suggest'],
+  utility: ['help', 'commands', 'about', 'ping', 'serverinfo', 'userinfo', 'avatar', 'channelinfo', 'roleinfo', 'roll', 'log'],
   administration: ['stop', 'copyserver', 'paste'],
   leveling: ['level', 'profile', 'rank', 'leaderboard', 'top', 'setxp', 'setlevel'],
-  clans: ['clan']
+  clans: ['clan'],
+  economy: ['economy']
 };
 
 export function normalizeAliases(value, commandNames = Object.keys(defaultAliases())) {

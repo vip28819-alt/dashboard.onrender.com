@@ -184,6 +184,15 @@ function guildEmbed(guild, title, description, color) {
   const normalized = typeof configured === 'string' ? Number.parseInt(configured.replace('#', ''), 16) : configured;
   return embed(title, description, color || normalized || 0x6558ed);
 }
+function commandGuide() {
+  const groups = Object.fromEntries(getCommandCatalog().map((command) => [command.name, command.group]));
+  return commands.map((command) => {
+    const json = command.toJSON();
+    const subcommands = (json.options || []).filter((option) => option.type === 1).map((option) => ` \`/${json.name} ${option.name}\``).join(',');
+    return `\`/${json.name}\`${subcommands} — ${json.description} (${groups[json.name] || 'general'})`;
+  }).join('\n');
+}
+const featureGuide = 'Features: moderation and AutoMod, anti-raid protection, welcome cards and verification, tickets with categories/transcripts/ratings, leveling and member profiles, clans, join-to-create voice rooms, AFK roles, economy daily rewards, suggestions and voting, server logs, and scheduled Islamic reminders.';
 function welcomeCard(member) {
   const server = member.guild.name.replace(/[<&>"]/g, '');
   const user = member.user.username.replace(/[<&>"]/g, '');
@@ -632,6 +641,7 @@ const suggestionCommand = new SlashCommandBuilder()
 
 const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Show the bot command guide'),
+  new SlashCommandBuilder().setName('commands').setDescription('Show every bot feature and command'),
   new SlashCommandBuilder().setName('about').setDescription('Show bot information and dashboard link'),
   economyCommand,
   suggestionCommand,
@@ -837,7 +847,8 @@ client.on(Events.MessageCreate, async (message) => {
     if (!commandName) return;
     if (settings.commandEnabled[commandName] === false) return message.reply(`The **${commandName}** command is disabled in this server.`);
     if (commandName === 'about') return message.reply({ embeds: [embed('Server Control', `A self-hosted moderation, protection, tickets, logging, AutoMod, leveling, and utility bot.\n\n**Dashboard:** [Open Server Control](${getDashboardUrl()})\n**Status:** Online · ${client.guilds.cache.size} server${client.guilds.cache.size === 1 ? '' : 's'}`)] });
-    if (commandName === 'help' || commandName === 'commands') return message.reply(`Dashboard: ${getDashboardUrl()}\nCommands: ${prefix}about, ${prefix}help, ${prefix}ping, ${prefix}ticket, ${prefix}rules, ${prefix}profile, ${prefix}rank, ${prefix}top, ${prefix}rep, ${prefix}selfrole, ${prefix}security, ${prefix}serverinfo, ${prefix}ban, ${prefix}kick, ${prefix}clear`);
+    if (commandName === 'commands') return message.reply({ embeds: [embed('Potato features and commands', `${featureGuide}\n\nDashboard: ${getDashboardUrl()}\n\n${commandGuide()}`, 0xd79a45)] });
+    if (commandName === 'help') return message.reply(`Dashboard: ${getDashboardUrl()}\nUse **${prefix}commands** to see every feature and command.`);
     if (commandName === 'stop') { if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return message.reply('Administrator permission is required to stop the bot.'); await message.reply('Stopping the bot safely…'); setTimeout(() => { client.destroy(); process.exit(0); }, 750); return; }
     if (commandName === 'ping') return message.reply(`Pong! ${client.ws.ping}ms`);
     if (commandName === 'rules') return message.reply({ embeds: [embed('Server rules', settings.rulesText, 0xfee75c)] });
@@ -1063,7 +1074,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (settings.commandEnabled[name] === false) return interaction.reply({ content: `The **${name}** command is disabled in this server.`, ephemeral: true });
     if (name === 'setup' || name === 'log') await interaction.deferReply({ ephemeral: true });
     if (name === 'about') return interaction.reply({ embeds: [embed('Server Control', `A self-hosted moderation, protection, tickets, logging, AutoMod, leveling, and utility bot.\n\n**Dashboard:** [Open Server Control](${getDashboardUrl()})\n**Commands:** Use \`/help\` to see the command guide.\n**Status:** Online · ${client.guilds.cache.size} server${client.guilds.cache.size === 1 ? '' : 's'}`)] });
-    if (name === 'help') return interaction.reply({ embeds: [embed('Bot commands', `Dashboard: [Open Server Control](${getDashboardUrl()})\n\n\`/setup prefix\` changes text commands; slash commands always use \`/\`\n\`/setup welcome\`, \`/setup rules\`, \`/setup logs\`, \`/setup ticket\`, \`/setup security\` configuration\n\`/copyserver source_server_id confirm:true\` copies and remembers a server structure\n\`/paste confirm:true\` pastes the last copied structure into this server\n\`/security\`, \`/blacklist\` server protection\n\`/ban\`, \`/kick\`, \`/timeout\`, \`/warn\`, \`/warnings\`, \`/clear\` moderation\n\`/lock\`, \`/unlock\`, \`/slowmode\`, \`/role\` server management\n\`/say\`, \`/announce\`, \`/ticket\`, \`/rules\` communication tools\n\`/level\`, \`/leaderboard\` XP system\n\`/ping\`, \`/serverinfo\`, \`/userinfo\`, \`/avatar\` utilities`)] });
+    if (name === 'commands') return interaction.reply({ embeds: [embed('Potato features and commands', `${featureGuide}\n\nDashboard: [Open Server Control](${getDashboardUrl()})\n\n${commandGuide()}`, 0xd79a45)] });
+    if (name === 'help') return interaction.reply({ embeds: [embed('Potato help', `Dashboard: [Open Server Control](${getDashboardUrl()})\n\nUse \`/commands\` to see every feature and command.`)] });
     if (['level', 'profile', 'rank'].includes(name)) {
       const user = interaction.options.getUser('user') || interaction.user;
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
