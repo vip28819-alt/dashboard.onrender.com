@@ -187,12 +187,12 @@ function guildEmbed(guild, title, description, color) {
 function commandGuide() {
   const groups = Object.fromEntries(getCommandCatalog().map((command) => [command.name, command.group]));
   return commands.map((command) => {
-    const json = command.toJSON();
+    const json = typeof command.toJSON === 'function' ? command.toJSON() : command;
     const subcommands = (json.options || []).filter((option) => option.type === 1).map((option) => ` \`/${json.name} ${option.name}\``).join(',');
     return `\`/${json.name}\`${subcommands} — ${json.description} (${groups[json.name] || 'general'})`;
   }).join('\n');
 }
-const featureGuide = 'Features: moderation and AutoMod, anti-raid protection, welcome cards and verification, tickets with categories/transcripts/ratings, leveling and member profiles, clans, join-to-create voice rooms, AFK roles, economy daily rewards, suggestions and voting, server logs, and scheduled Islamic reminders.';
+const featureGuide = 'Features: moderation and AutoMod, anti-raid protection, complete /setup all provisioning, welcome cards and verification, tickets with categories/transcripts/ratings, leveling and member profiles, clans, join-to-create voice rooms, AFK roles, economy daily rewards, suggestions and voting, server logs, and scheduled Islamic reminders.';
 function welcomeCard(member) {
   const server = member.guild.name.replace(/[<&>"]/g, '');
   const user = member.user.username.replace(/[<&>"]/g, '');
@@ -753,8 +753,8 @@ async function registerCommands() {
   const applicationId = process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID;
   if (!process.env.DISCORD_TOKEN || !applicationId) throw new Error('DISCORD_TOKEN and DISCORD_CLIENT_ID are required in the environment.');
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  await rest.put(Routes.applicationCommands(applicationId), { body: commands });
-  console.log(`Registered ${commands.length} global slash commands. Discord may take up to an hour to show new global commands.`);
+  await rest.put(Routes.applicationCommands(applicationId), { body: [] });
+  console.log('Cleared legacy global slash commands; commands are registered per server to prevent duplicate entries.');
 }
 
 async function registerGuildCommands(readyClient) {
