@@ -49,6 +49,9 @@ const defaults = {
   verificationEnabled: false,
   verificationChannelId: null,
   verificationMessageId: null,
+  joinToCreateChannelId: null,
+  afkRoleId: null,
+  afkChannelId: null,
   goodbyeChannelId: null,
   goodbyeMessage: '{username} has left **{server}**. We will remember you!',
   logChannelId: null,
@@ -113,6 +116,7 @@ function saveCopyState() {
 const spamTracker = new Map();
 const raidTracker = new Map();
 const voiceSessions = new Map();
+const dynamicVoiceRooms = new Map();
 function getGuildData(guildId) {
   guildData[guildId] ??= structuredClone(defaults);
   guildData[guildId].prefix = typeof guildData[guildId].prefix === 'string' && guildData[guildId].prefix.trim() ? guildData[guildId].prefix.trim() : defaults.prefix;
@@ -130,6 +134,9 @@ function getGuildData(guildId) {
   guildData[guildId].verificationEnabled ??= defaults.verificationEnabled;
   guildData[guildId].verificationChannelId ??= defaults.verificationChannelId;
   guildData[guildId].verificationMessageId ??= defaults.verificationMessageId;
+  guildData[guildId].joinToCreateChannelId ??= defaults.joinToCreateChannelId;
+  guildData[guildId].afkRoleId ??= defaults.afkRoleId;
+  guildData[guildId].afkChannelId ??= defaults.afkChannelId;
   guildData[guildId].commandAliases = { ...structuredClone(defaults.commandAliases), ...(guildData[guildId].commandAliases || {}) };
   guildData[guildId].security ??= structuredClone(defaults.security);
   guildData[guildId].security = { ...structuredClone(defaults.security), ...guildData[guildId].security };
@@ -896,13 +903,32 @@ client.on(Events.MessageCreate, async (message) => {
   saveData();
 });
 
-client.on(Events.VoiceStateUpdate, (before, after) => {
+client.on(Events.VoiceStateUpdate, async (before, after) => {
   const member = after.member || before.member;
   if (!member || member.user.bot || !after.guild) return;
   const key = `${after.guild.id}:${member.id}`;
   const settings = getGuildData(after.guild.id);
   const wasInVoice = Boolean(before.channelId);
   const isInVoice = Boolean(after.channelId);
+  if (settings.afkRoleId && before.channelId !== after.channelId) {
+    if (after.channelId === settings.afkChannelId) await member.roles.add(settings.afkRoleId, 'Entered AFK channel').catch(() => {});
+    else if (before.channelId === settings.afkChannelId) await member.roles.remove(settings.afkRoleId, 'Left AFK channel').catch(() => {});
+  }
+  if (after.channelId === settings.joinToCreateChannelId) {
+    const room = await after.guild.channels.create({ name: `${member.user.username}'s room`.slice(0, 90), type: ChannelType.GuildVoice, permissionOverwrites: [{ id: after.guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak, PermissionsBitField.Flags.ManageChannels] }] }).catch(() => null);
+    if (room) {
+      dynamicVoiceRooms.set(room.id, member.id);
+      await member.voice.setChannel(room, 'Join to create voice room').catch(async () => { await room.delete('Could not move member to voice room').catch(() => {}); });
+    }
+  }
+  const ownedRoom = dynamicVoiceRooms.get(before.channelId);
+  if (ownedRoom && before.channelId !== after.channelId) {
+    const channel = after.guild.channels.cache.get(before.channelId);
+    if (channel?.type === ChannelType.GuildVoice && channel.members.size === 0) {
+      dynamicVoiceRooms.delete(before.channelId);
+      await channel.delete('Empty temporary voice room').catch(() => {});
+    }
+  }
   if (!wasInVoice && isInVoice) {
     voiceSessions.set(key, { startedAt: Date.now() });
     return;

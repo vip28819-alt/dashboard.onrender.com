@@ -140,9 +140,9 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     return response.json({
       channels: guild.channels.cache
-        .filter((channel) => channel.isTextBased() || channel.type === ChannelType.GuildCategory)
+        .filter((channel) => channel.isTextBased() || channel.isVoiceBased() || channel.type === ChannelType.GuildCategory)
         .sort((first, second) => first.position - second.position)
-        .map((channel) => ({ id: channel.id, name: channel.name, type: channel.type, kind: channel.type === ChannelType.GuildCategory ? 'category' : 'text', parentId: channel.parentId || null })),
+        .map((channel) => ({ id: channel.id, name: channel.name, type: channel.type, kind: channel.type === ChannelType.GuildCategory ? 'category' : channel.isVoiceBased() ? 'voice' : 'text', parentId: channel.parentId || null })),
       roles: guild.roles.cache
         .filter((role) => role.id !== guild.id)
         .sort((first, second) => second.position - first.position)
@@ -174,13 +174,13 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     const settings = getGuildData(guild.id);
-    for (const key of ['prefix', 'language', 'embedColor', 'commandEnabled', 'commandAliases', 'autoRoleIds', 'selfAssignableRoleIds', 'autoReplies', 'quarantineRoleId', 'verifiedRoleId', 'welcomeChannelId', 'welcomeMessage', 'welcomeDelivery', 'welcomeCardEnabled', 'verificationChannelId', 'verificationEnabled', 'goodbyeChannelId', 'goodbyeMessage', 'logChannelId', 'logCategoryId', 'logEvents', 'rulesChannelId', 'rulesText', 'ticketCategoryId', 'ticketPanelChannelId', 'automod', 'automodAction', 'levelUp', 'levelUpMessage', 'levelExcludedChannels', 'levelExcludedRoles', 'levelRoleRewards', 'blockedWords', 'ticketPanelTitle', 'ticketPanelDescription', 'ticketButtonLabel', 'ticketButtonStyle', 'ticketNamePrefix', 'ticketWelcomeTitle', 'ticketWelcomeMessage', 'ticketCloseLabel']) if (request.body[key] !== undefined) settings[key] = request.body[key];
+    for (const key of ['prefix', 'language', 'embedColor', 'commandEnabled', 'commandAliases', 'autoRoleIds', 'selfAssignableRoleIds', 'autoReplies', 'quarantineRoleId', 'verifiedRoleId', 'joinToCreateChannelId', 'afkRoleId', 'afkChannelId', 'welcomeChannelId', 'welcomeMessage', 'welcomeDelivery', 'welcomeCardEnabled', 'verificationChannelId', 'verificationEnabled', 'goodbyeChannelId', 'goodbyeMessage', 'logChannelId', 'logCategoryId', 'logEvents', 'rulesChannelId', 'rulesText', 'ticketCategoryId', 'ticketPanelChannelId', 'automod', 'automodAction', 'levelUp', 'levelUpMessage', 'levelExcludedChannels', 'levelExcludedRoles', 'levelRoleRewards', 'blockedWords', 'ticketPanelTitle', 'ticketPanelDescription', 'ticketButtonLabel', 'ticketButtonStyle', 'ticketNamePrefix', 'ticketWelcomeTitle', 'ticketWelcomeMessage', 'ticketCloseLabel']) if (request.body[key] !== undefined) settings[key] = request.body[key];
     if (request.body.commandAliases && typeof request.body.commandAliases !== 'object') return response.status(400).json({ error: 'Command aliases must be an object.' });
     if (request.body.security) settings.security = { ...settings.security, ...request.body.security };
     const validChannelIds = new Set(guild.channels.cache.filter((channel) => channel.isTextBased() || channel.type === ChannelType.GuildCategory).keys());
     const validRoleIds = new Set(guild.roles.cache.filter((role) => role.id !== guild.id).keys());
-    const channelKeys = ['welcomeChannelId', 'goodbyeChannelId', 'logChannelId', 'logCategoryId', 'rulesChannelId', 'ticketCategoryId', 'ticketPanelChannelId'];
-    const roleKeys = ['quarantineRoleId', 'verifiedRoleId'];
+    const channelKeys = ['welcomeChannelId', 'goodbyeChannelId', 'verificationChannelId', 'joinToCreateChannelId', 'afkChannelId', 'logChannelId', 'logCategoryId', 'rulesChannelId', 'ticketCategoryId', 'ticketPanelChannelId'];
+    const roleKeys = ['quarantineRoleId', 'verifiedRoleId', 'afkRoleId'];
     for (const key of channelKeys) {
       if (settings[key] && !validChannelIds.has(settings[key])) return response.status(400).json({ error: `${key} must reference a channel in this server.` });
     }
