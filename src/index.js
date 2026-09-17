@@ -54,6 +54,7 @@ const defaults = {
   afkChannelId: null,
   suggestionsChannelId: null,
   suggestions: {},
+  islamicReminders: { enabled: false, channelId: null, hourly: true, friday: true },
   goodbyeChannelId: null,
   goodbyeMessage: '{username} has left **{server}**. We will remember you!',
   logChannelId: null,
@@ -75,7 +76,7 @@ const defaults = {
   ticketCloseLabel: 'Close Ticket',
   ticketSystems: [],
   automod: true,
-  security: { antiSpam: true, antiInvite: true, antiCaps: true, antiRaid: true, antiMassMention: true, raidLimit: 5 },
+  security: { antiSpam: true, antiInvite: true, antiCaps: true, antiRaid: true, antiMassMention: true, antiBotJoin: false, antiPrivilegeChanges: false, raidLimit: 5 },
   blacklist: [],
   verifiedRoleId: null,
   quarantineRoleId: null,
@@ -141,6 +142,7 @@ function getGuildData(guildId) {
   guildData[guildId].afkChannelId ??= defaults.afkChannelId;
   guildData[guildId].suggestionsChannelId ??= defaults.suggestionsChannelId;
   guildData[guildId].suggestions ??= {};
+  guildData[guildId].islamicReminders ??= structuredClone(defaults.islamicReminders);
   guildData[guildId].commandAliases = { ...structuredClone(defaults.commandAliases), ...(guildData[guildId].commandAliases || {}) };
   guildData[guildId].security ??= structuredClone(defaults.security);
   guildData[guildId].security = { ...structuredClone(defaults.security), ...guildData[guildId].security };
@@ -720,6 +722,19 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}. Connected guilds: ${readyClient.guilds.cache.size}.`);
   if (!readyClient.guilds.cache.size) console.warn('The bot is connected but is not currently visible in any server. Recheck the invite and bot token.');
   await registerGuildCommands(readyClient);
+  setInterval(async () => {
+    const now = new Date();
+    const friday = now.getUTCDay() === 5;
+    for (const guild of readyClient.guilds.cache.values()) {
+      const settings = getGuildData(guild.id);
+      const reminders = settings.islamicReminders;
+      if (!reminders.enabled || !reminders.channelId || (friday && !reminders.friday) || (!friday && !reminders.hourly)) continue;
+      const channel = guild.channels.cache.get(reminders.channelId);
+      if (!channel?.isTextBased()) continue;
+      const text = friday ? 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' : 'قال رسول الله ﷺ: «من صلى عليّ واحدة صلى الله عليه بها عشراً».';
+      await channel.send({ embeds: [guildEmbed(guild, friday ? 'تذكير الجمعة' : 'تذكير إيماني', text, 0xd79a45)] }).catch((error) => console.error(`Could not send reminder in ${guild.name}:`, error.message));
+    }
+  }, 60 * 60 * 1000);
 });
 client.on(Events.GuildCreate, async (guild) => {
   if (!process.env.DISCORD_TOKEN || !(process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID)) return;
@@ -732,6 +747,11 @@ client.on('error', (error) => {
 
 client.on(Events.GuildMemberAdd, async (member) => {
   const settings = getGuildData(member.guild.id);
+  if (member.user.bot && settings.security.antiBotJoin) {
+    await member.kick('Anti-raid protection: unapproved bot join').catch(() => {});
+    await sendLog(member.guild, 'Security bot blocked', `${member.user.tag} was blocked from joining because bot-entry protection is enabled.`, 0xed4245);
+    return;
+  }
   if (settings.blacklist.includes(member.id)) {
     await member.ban({ reason: 'Blacklisted user' }).catch(() => {});
     await sendLog(member.guild, 'Blacklist action', `${member.user.tag} was banned on join.` , 0xed4245);
@@ -754,6 +774,14 @@ client.on(Events.GuildMemberAdd, async (member) => {
       await channel.send(payload);
     }
   }
+});
+
+client.on(Events.GuildMemberUpdate, async (before, after) => {
+  const settings = getGuildData(after.guild.id);
+  if (!settings.security.antiPrivilegeChanges || before.roles.cache.size >= after.roles.cache.size) return;
+  const added = after.roles.cache.filter((role) => !before.roles.cache.has(role.id) && role.permissions.any(PermissionsBitField.Flags.Administrator | PermissionsBitField.Flags.ManageGuild | PermissionsBitField.Flags.ManageRoles | PermissionsBitField.Flags.ManageChannels));
+  if (!added.size) return;
+  await sendLog(after.guild, 'Security privilege alert', `${after.user.tag} received high-privilege role(s): ${added.map((role) => role.name).join(', ')}. Review the change immediately.`, 0xed4245);
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
@@ -976,18 +1004,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
       console.error(`Could not verify ${interaction.user.tag} in ${interaction.guild.name}:`, error.message);
       return interaction.reply({ content: 'I could not assign the verified role. Please contact an administrator.', ephemeral: true });
     }
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_category:')) {
-      try {
-        const systemId = interaction.customId.split(':')[1] || 'default';
-        const system = settings.ticketSystems?.find((item) => item.id === systemId) || settings.ticketSystems?.[0] || settings;
-        const category = system.categories?.find((item) => item.id === interaction.values[0]);
-        const channel = await createTicketChannel(interaction.guild, interaction.user, settings, { ...system, namePrefix: category?.prefix || system.namePrefix });
-        await sendLog(interaction.guild, 'Ticket opened', `${interaction.user.tag} opened ${channel} (${category?.label || 'General'}).`);
-        return interaction.reply({ content: `تم إنشاء تذكرتك الخاصة: ${channel}`, ephemeral: true });
-      } catch (error) {
-        console.error('Could not create categorized ticket:', error.message);
-        return interaction.reply({ content: 'I could not create your ticket. Check my Manage Channels permission.', ephemeral: true });
-      }
+  }
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_category:')) {
+    try {
+      const systemId = interaction.customId.split(':')[1] || 'default';
+      const system = settings.ticketSystems?.find((item) => item.id === systemId) || settings.ticketSystems?.[0] || settings;
+      const category = system.categories?.find((item) => item.id === interaction.values[0]);
+      const channel = await createTicketChannel(interaction.guild, interaction.user, settings, { ...system, namePrefix: category?.prefix || system.namePrefix });
+      await sendLog(interaction.guild, 'Ticket opened', `${interaction.user.tag} opened ${channel} (${category?.label || 'General'}).`);
+      return interaction.reply({ content: `تم إنشاء تذكرتك الخاصة: ${channel}`, ephemeral: true });
+    } catch (error) {
+      console.error('Could not create categorized ticket:', error.message);
+      return interaction.reply({ content: 'I could not create your ticket. Check my Manage Channels permission.', ephemeral: true });
     }
   }
   if (interaction.isButton() && interaction.customId.startsWith('ticket_open')) {
@@ -1008,6 +1036,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const system = settings.ticketSystems?.find((item) => item.id === systemId) || settings.ticketSystems?.[0] || settings;
     if (!interaction.channel.name.startsWith(`${system.namePrefix || settings.ticketNamePrefix}-`)) return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
     await sendTicketTranscript(interaction.guild, interaction.channel, system.id, interaction.user);
+    const staffStats = getMemberStats(settings, interaction.user.id);
+    staffStats.servicePoints = (staffStats.servicePoints || 0) + 1;
+    saveData();
     await sendLog(interaction.guild, 'Ticket transcript', `${interaction.user.tag} generated a transcript for ${interaction.channel} before closing it.`);
     await sendLog(interaction.guild, 'Ticket closed', `${interaction.user.tag} closed ${interaction.channel}.`);
     const ownerId = interaction.channel.topic?.match(/^ticket-owner:(\d+)$/)?.[1];
