@@ -30,7 +30,14 @@ const pidFile = path.join(dataDir, 'bot.pid');
 fs.mkdirSync(dataDir, { recursive: true });
 fs.writeFileSync(pidFile, String(process.pid));
 const removePidFile = () => { if (fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').trim() === String(process.pid)) fs.rmSync(pidFile); };
-process.once('exit', removePidFile);
+process.once('exit', () => {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    saveData();
+  }
+  removePidFile();
+});
 
 const defaults = {
   prefix: process.env.BOT_PREFIX || '!',
@@ -114,13 +121,14 @@ function loadCopyState() {
 }
 const copyState = loadCopyState();
 function saveCopyState() {
-  fs.writeFileSync(copyStateFile, JSON.stringify(copyState, null, 2));
+  writeJsonAtomic(copyStateFile, copyState);
 }
 const spamTracker = new Map();
 const raidTracker = new Map();
 const voiceSessions = new Map();
 const dynamicVoiceRooms = new Map();
 const reminderState = new Map();
+let saveTimer = null;
 function getGuildData(guildId) {
   guildData[guildId] ??= structuredClone(defaults);
   guildData[guildId].prefix = typeof guildData[guildId].prefix === 'string' && guildData[guildId].prefix.trim() ? guildData[guildId].prefix.trim() : defaults.prefix;
@@ -165,7 +173,23 @@ function getGuildData(guildId) {
   return guildData[guildId];
 }
 function saveData() {
-  fs.writeFileSync(dataFile, JSON.stringify(guildData, null, 2));
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  writeJsonAtomic(dataFile, guildData);
+}
+function writeJsonAtomic(file, value) {
+  const temporaryFile = `${file}.tmp`;
+  fs.writeFileSync(temporaryFile, JSON.stringify(value, null, 2));
+  fs.renameSync(temporaryFile, file);
+}
+function scheduleSaveData(delay = 1500) {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveData();
+  }, delay);
 }
 function getDashboardUrl() {
   return process.env.DASHBOARD_PUBLIC_URL || `http://${process.env.DASHBOARD_HOST || '127.0.0.1'}:${process.env.DASHBOARD_PORT || '3000'}`;
@@ -829,13 +853,18 @@ client.once(Events.ClientReady, async (readyClient) => {
       const settings = getGuildData(guild.id);
       const reminders = settings.islamicReminders;
       if (!reminders.enabled || !reminders.channelId || (friday && !reminders.friday) || (!friday && !reminders.hourly)) continue;
-      const reminderKey = `${guild.id}:${now.toISOString().slice(0, 10)}`;
-      if (friday && reminderState.has(reminderKey)) continue;
+      const reminderKey = `${guild.id}:${friday ? now.toISOString().slice(0, 10) : now.toISOString().slice(0, 13)}`;
+      if (reminderState.has(reminderKey)) continue;
       const channel = guild.channels.cache.get(reminders.channelId);
       if (!channel?.isTextBased()) continue;
       const text = friday ? 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' : 'قال رسول الله ﷺ: «من صلى عليّ واحدة صلى الله عليه بها عشراً».';
-      await channel.send({ embeds: [guildEmbed(guild, friday ? 'تذكير الجمعة' : 'تذكير إيماني', text, 0xd79a45)] }).catch((error) => console.error(`Could not send reminder in ${guild.name}:`, error.message));
-      if (friday) reminderState.set(reminderKey, true);
+      try {
+        await channel.send({ embeds: [guildEmbed(guild, friday ? 'تذكير الجمعة' : 'تذكير إيماني', text, 0xd79a45)] });
+      } catch (error) {
+        console.error(`Could not send reminder in ${guild.name}:`, error.message);
+        continue;
+      }
+      reminderState.set(reminderKey, true);
     }
   }, 60 * 60 * 1000);
 });
@@ -925,7 +954,7 @@ client.on(Events.MessageCreate, async (message) => {
   getMemberStats(settings, message.author.id).messages += 1;
   const memberClan = getMemberClan(settings, message.author.id);
   if (memberClan) memberClan.points = (memberClan.points || 0) + 1;
-  saveData();
+  scheduleSaveData();
   const matchingReply = settings.autoReplies.find((entry) => entry.enabled !== false && message.content.toLowerCase().includes(entry.trigger.toLowerCase()));
   if (matchingReply) await message.reply(matchingReply.response).catch(() => {});
   const prefix = settings.prefix;
@@ -1047,7 +1076,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (reward) await message.member.roles.add(reward.roleId).catch(() => {});
   }
   settings.xp[message.author.id] = record;
-  saveData();
+  scheduleSaveData();
 });
 
 client.on(Events.VoiceStateUpdate, async (before, after) => {
@@ -1157,7 +1186,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await sendLog(interaction.guild, 'Ticket rating', `${interaction.user.tag} rated the support service **${rating}/5** in ${interaction.channel}.`);
     return interaction.update({ content: `شكراً لتقييمك: **${rating}/5**`, components: [] });
   }
-  if (!interaction.isChatInputCommand()) return;
+  if (!interaction.isChatInputCommand() && !(interaction.isButton() && interaction.customId.startsWith('suggest_vote:'))) return;
   const name = interaction.commandName;
   try {
     if (settings.commandEnabled[name] === false) return interaction.reply({ content: `The **${name}** command is disabled in this server.`, ephemeral: true });

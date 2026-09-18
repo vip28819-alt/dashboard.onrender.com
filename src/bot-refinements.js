@@ -162,6 +162,14 @@ export function normalizeGuildSettings(settings) {
   next.prefix = String(next.prefix || '!').trim().slice(0, 3) || '!';
   next.commandAliases = normalizeAliases(next.commandAliases);
   next.security = normalizeSecurity(next);
+  next.autoReplies = (Array.isArray(next.autoReplies) ? next.autoReplies : [])
+    .map((entry) => ({
+      trigger: cleanMessage(entry?.trigger, 100).toLowerCase(),
+      response: cleanMessage(entry?.response, 2000),
+      enabled: entry?.enabled !== false
+    }))
+    .filter((entry) => entry.trigger && entry.response)
+    .slice(0, 100);
   next.blockedWords = [...new Set((Array.isArray(next.blockedWords) ? next.blockedWords : []).map((word) => cleanMessage(word, 80).toLowerCase()).filter(Boolean))].slice(0, 200);
   next.levelExcludedChannels = parseIdList(next.levelExcludedChannels);
   next.levelExcludedRoles = parseIdList(next.levelExcludedRoles);
