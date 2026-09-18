@@ -183,13 +183,14 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     const settings = getGuildData(guild.id);
     const reminders = settings.islamicReminders || {};
-    const channel = reminders.channelId ? guild.channels.cache.get(reminders.channelId) : null;
-    if (!channel?.isTextBased()) return response.status(400).json({ error: 'Choose a valid reminder channel first.' });
     const kind = request.body?.kind === 'verse' ? 'verse' : request.body?.kind === 'friday' ? 'friday' : 'hadith';
+    const channelId = kind === 'hadith' ? reminders.hadithChannelId : kind === 'verse' ? reminders.quranChannelId : (reminders.reminderChannelId || reminders.channelId);
+    const channel = channelId ? guild.channels.cache.get(channelId) : null;
+    if (!channel?.isTextBased()) return response.status(400).json({ error: 'Run Islamic channel setup first so Hadith, Quran, and reminder channels are available.' });
     const titles = { hadith: 'حديث تجريبي', verse: 'آية تجريبية', friday: 'تذكير جمعة تجريبي' };
-    const hadith = kind === 'hadith' && getAuthenticHadith ? await getAuthenticHadith().catch(() => null) : null;
-    const texts = { hadith: hadith ? `${hadith.text}\n\n— ${hadith.book}, hadith ${hadith.number}` : reminders.hadithText, verse: reminders.verseText, friday: 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' };
-    if (!String(texts[kind] || '').trim()) return response.status(400).json({ error: 'Add content for this reminder first.' });
+    const hadith = kind === 'hadith' && getAuthenticHadith ? await getAuthenticHadith().catch((error) => { throw new Error(`Trusted hadith source unavailable: ${error.message}`); }) : null;
+    const texts = { hadith: hadith ? `${hadith.text}\n\n— ${hadith.book}, hadith ${hadith.number}` : '', verse: reminders.verseText, friday: 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' };
+    if (!String(texts[kind] || '').trim()) return response.status(400).json({ error: 'Trusted content is not available for this reminder yet.' });
     try {
       await channel.send({ embeds: [{ title: titles[kind], description: texts[kind], color: 0xd79a45, timestamp: new Date().toISOString() }] });
       return response.json({ ok: true });

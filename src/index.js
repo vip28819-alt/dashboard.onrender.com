@@ -60,6 +60,7 @@ const defaults = {
   verificationEnabled: false,
   verificationChannelId: null,
   verificationMessageId: null,
+  verificationChallenges: {},
   joinToCreateChannelId: null,
   joinToCreateControlChannelId: null,
   afkRoleId: null,
@@ -72,11 +73,14 @@ const defaults = {
   islamicReminders: {
     enabled: false,
     channelId: null,
+    hadithChannelId: null,
+    quranChannelId: null,
+    reminderChannelId: null,
     mode: 'interval',
     intervalMinutes: 30,
     customDay: 5,
     customTime: '12:00',
-    customMessage: 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.',
+    customMessage: '',
     hourly: true,
     friday: true,
     hadithEnabled: true,
@@ -172,6 +176,7 @@ function getGuildData(guildId) {
   guildData[guildId].verificationEnabled ??= defaults.verificationEnabled;
   guildData[guildId].verificationChannelId ??= defaults.verificationChannelId;
   guildData[guildId].verificationMessageId ??= defaults.verificationMessageId;
+  guildData[guildId].verificationChallenges ??= {};
   guildData[guildId].joinToCreateChannelId ??= defaults.joinToCreateChannelId;
   guildData[guildId].joinToCreateControlChannelId ??= defaults.joinToCreateControlChannelId;
   guildData[guildId].afkRoleId ??= defaults.afkRoleId;
@@ -261,7 +266,7 @@ async function publishVerificationPanel(guild, settings) {
   if (!channel?.isTextBased()) throw new Error('The verification channel is unavailable.');
   const role = settings.verifiedRoleId ? guild.roles.cache.get(settings.verifiedRoleId) : null;
   if (!role) throw new Error('Choose a verified role first.');
-  const message = await channel.send({ embeds: [guildEmbed(guild, 'Server verification', 'اضغط على الزر أدناه للحصول على رتبة العضو والدخول إلى السيرفر.', 0x57f287)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`verify:${guild.id}`).setLabel('تحقق من العضوية').setStyle(ButtonStyle.Success))] });
+  const message = await channel.send({ embeds: [guildEmbed(guild, 'Server verification', 'اضغط الزر، ثم انسخ الكلمة العشوائية والصقها في نافذة السؤال لإثبات أنك عضو حقيقي والحصول على رتبة Verified.', 0x57f287)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`verify:${guild.id}`).setLabel('ابدأ التحقق').setStyle(ButtonStyle.Success))] });
   settings.verificationMessageId = message.id;
   settings.verificationEnabled = true;
   saveData();
@@ -617,9 +622,9 @@ async function createServerSetup(guild) {
   const welcome = await provision('welcome channel', () => makeText('welcome', 'Welcome messages for new members.', communityCategory?.id));
   const verification = await provision('verification channel', () => makeText('verification', 'Verify here to receive access to the server.', communityCategory?.id));
   const suggestions = await provision('suggestions channel', () => makeText('suggestions', 'Community suggestions and voting.', communityCategory?.id));
-  const reminders = await provision('reminders channel', () => makeText('reminders', 'Scheduled Islamic reminders.', islamicCategory?.id));
-  const islamic = await provision('Islamic channel', () => makeText('islamic', 'Quran verses, hadith, and Islamic reminders.', islamicCategory?.id));
-  const quran = await provision('quran channel', () => makeVoice('quran', 'Quran audio channel.', islamicCategory?.id));
+  const reminders = await provision('reminders channel', () => makeText('reminders', 'Scheduled Friday and general Islamic reminders.', islamicCategory?.id));
+  const hadithChannel = await provision('hadith channel', () => makeText('hadith', 'Authentic hadith from Sahih al-Bukhari and Sahih Muslim.', islamicCategory?.id));
+  const quran = await provision('quran channel', () => makeText('quran', 'Quran verses from the trusted source configured by Potato.', islamicCategory?.id));
   const voiceControl = await provision('voice control channel', () => makeText('voice-control', 'Voice room instructions and controls.', voiceCategory?.id));
   const joinToCreate = await provision('join-to-create channel', () => makeVoice('join-to-create', 'Join this channel to create a private voice room.', voiceCategory?.id));
   const afk = await provision('afk channel', () => makeVoice('afk', 'Members in this channel receive the AFK role.', voiceCategory?.id));
@@ -675,7 +680,7 @@ async function createServerSetup(guild) {
   settings.verificationEnabled = true;
   settings.security.antiBotJoin = true;
   settings.security.antiPrivilegeChanges = true;
-  settings.islamicReminders = { ...settings.islamicReminders, enabled: true, channelId: islamic?.id || reminders?.id || settings.islamicReminders.channelId, hourly: true, friday: true };
+  settings.islamicReminders = { ...settings.islamicReminders, enabled: true, channelId: reminders?.id || settings.islamicReminders.channelId, reminderChannelId: reminders?.id || settings.islamicReminders.reminderChannelId, hadithChannelId: hadithChannel?.id || settings.islamicReminders.hadithChannelId, quranChannelId: quran?.id || settings.islamicReminders.quranChannelId, hourly: true, friday: true };
   settings.rulesText = settings.rulesText || 'Be respectful, follow Discord rules, and keep this community welcoming.';
   if (rules) await rules.send({ embeds: [guildEmbed(guild, 'Server rules', settings.rulesText, 0xfee75c)] }).catch(() => {});
   if (voiceControl && !voiceControl.topic?.includes('Potato voice setup')) {
@@ -715,7 +720,7 @@ async function createServerSetup(guild) {
     suggestionsChannelId: suggestions?.id,
     clanApplicationChannelId: clanApplications?.id,
     remindersChannelId: reminders?.id,
-    islamicChannelId: islamic?.id,
+    hadithChannelId: hadithChannel?.id,
     quranChannelId: quran?.id,
     voiceControlChannelId: voiceControl?.id,
     joinToCreateChannelId: joinToCreate?.id,
@@ -990,22 +995,31 @@ client.once(Events.ClientReady, async (readyClient) => {
       const settings = getGuildData(guild.id);
       const reminders = settings.islamicReminders;
       if (!reminders.enabled || !reminders.channelId) continue;
-      const channel = guild.channels.cache.get(reminders.channelId);
-      if (!channel?.isTextBased()) continue;
       if (reminders.mode === 'custom') {
         const day = Number(reminders.customDay);
         const time = String(reminders.customTime || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
         const currentTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
         const customKey = `${guild.id}:custom:${now.toISOString().slice(0, 10)}:${currentTime}`;
         if (now.getUTCDay() === day && time && currentTime === `${time[1]}:${time[2]}` && !reminderState.has(customKey)) {
-          await channel.send({ embeds: [guildEmbed(guild, 'تذكير إسلامي', reminders.customMessage || reminders.hadithText, 0xd79a45)] });
-          reminderState.set(customKey, true);
+          const channel = guild.channels.cache.get(reminders.hadithChannelId);
+          if (channel?.isTextBased()) {
+            const hadith = await getAuthenticHadith().catch((error) => {
+              console.error(`Could not fetch authentic hadith for ${guild.name}:`, error.message);
+              return null;
+            });
+            if (hadith) {
+              await channel.send({ embeds: [guildEmbed(guild, 'حديث صحيح من البخاري أو مسلم', `${hadith.text}\n\n— ${hadith.book}, hadith ${hadith.number}`, 0xd79a45)] });
+              reminderState.set(customKey, true);
+            }
+          }
         }
         continue;
       }
       if (friday && !reminders.friday || !friday && !reminders.hourly) continue;
-      const sendScheduled = async (kind, enabled, intervalMinutes, title, text) => {
+      const sendScheduled = async (kind, enabled, intervalMinutes, title, text, channelId) => {
         if (!enabled) return;
+        const channel = guild.channels.cache.get(channelId);
+        if (!channel?.isTextBased()) return;
         const interval = Math.max(1, Number(intervalMinutes) || 60);
         const slot = Math.floor(now.getTime() / (interval * 60 * 1000));
         const reminderKey = `${guild.id}:${kind}:${slot}`;
@@ -1022,14 +1036,17 @@ client.once(Events.ClientReady, async (readyClient) => {
           console.error(`Could not send ${kind} reminder in ${guild.name}:`, error.message);
         }
       };
-      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.mode === 'interval' ? reminders.intervalMinutes : reminders.hadithIntervalMinutes, 'حديث صحيح من البخاري أو مسلم', reminders.hadithText);
-      await sendScheduled('verse', reminders.verseEnabled && reminders.hourly, reminders.verseIntervalMinutes, 'آية للتذكير', reminders.verseText);
+      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.mode === 'interval' ? reminders.intervalMinutes : reminders.hadithIntervalMinutes, 'حديث صحيح من البخاري أو مسلم', reminders.hadithText, reminders.hadithChannelId);
+      await sendScheduled('verse', reminders.verseEnabled && reminders.hourly, reminders.verseIntervalMinutes, 'آية للتذكير', reminders.verseText, reminders.quranChannelId);
       if (friday && reminders.friday) {
         const fridayKey = `${guild.id}:friday:${now.toISOString().slice(0, 10)}`;
         if (!reminderState.has(fridayKey)) {
           try {
-            await channel.send({ embeds: [guildEmbed(guild, 'تذكير الجمعة', 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.', 0xd79a45)] });
-            reminderState.set(fridayKey, true);
+            const channel = guild.channels.cache.get(reminders.reminderChannelId || reminders.channelId);
+            if (channel?.isTextBased()) {
+              await channel.send({ embeds: [guildEmbed(guild, 'تذكير الجمعة', 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.', 0xd79a45)] });
+              reminderState.set(fridayKey, true);
+            }
           } catch (error) {
             console.error(`Could not send Friday reminder in ${guild.name}:`, error.message);
           }
@@ -1400,8 +1417,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const role = settings.verifiedRoleId ? interaction.guild.roles.cache.get(settings.verifiedRoleId) : null;
     if (!role) return interaction.reply({ content: 'The verification role is not configured yet.', ephemeral: true });
     if (interaction.member.roles.cache.has(role.id)) return interaction.reply({ content: 'You are already verified.', ephemeral: true });
+    const words = ['POTATO', 'SUNRISE', 'ORBIT', 'MEADOW', 'RIVER', 'CLOUD', 'COMET', 'GARDEN', 'LANTERN', 'OCEAN'];
+    const word = words[Math.floor(Math.random() * words.length)];
+    settings.verificationChallenges[interaction.user.id] = { word, createdAt: Date.now() };
+    saveData();
+    const modal = new ModalBuilder().setCustomId(`verify_answer:${interaction.guild.id}`).setTitle('Server verification');
+    modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('verification_word').setLabel(`Copy this word: ${word}`).setPlaceholder(word).setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(24)));
+    return interaction.showModal(modal);
+  }
+  if (interaction.isModalSubmit() && interaction.customId === `verify_answer:${interaction.guild.id}`) {
+    const challenge = settings.verificationChallenges[interaction.user.id];
+    const role = settings.verifiedRoleId ? interaction.guild.roles.cache.get(settings.verifiedRoleId) : null;
+    const answer = interaction.fields.getTextInputValue('verification_word').trim().toUpperCase();
+    if (!challenge || Date.now() - challenge.createdAt > 10 * 60 * 1000) {
+      delete settings.verificationChallenges[interaction.user.id];
+      saveData();
+      return interaction.reply({ content: 'انتهت صلاحية سؤال التحقق. اضغط زر التحقق للحصول على كلمة جديدة.', ephemeral: true });
+    }
+    if (!role) return interaction.reply({ content: 'The verification role is not configured yet.', ephemeral: true });
+    if (answer !== challenge.word) return interaction.reply({ content: 'إجابة غير صحيحة. اضغط زر التحقق للحصول على سؤال جديد.', ephemeral: true });
     try {
+      delete settings.verificationChallenges[interaction.user.id];
       await interaction.member.roles.add(role, 'Completed server verification');
+      saveData();
       return interaction.reply({ content: 'تم التحقق من عضويتك بنجاح.', ephemeral: true });
     } catch (error) {
       console.error(`Could not verify ${interaction.user.tag} in ${interaction.guild.name}:`, error.message);
@@ -1625,7 +1663,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (name === 'roll') { const sides = interaction.options.getInteger('sides') || 6; return interaction.reply(`🎲 **${Math.floor(Math.random() * sides) + 1}** (1-${sides})`); }
     if (name === 'rep') { const user = interaction.options.getUser('user'); if (user.id === interaction.user.id) return interaction.reply({ content: 'You cannot give reputation to yourself.', ephemeral: true }); settings.rep[user.id] = (settings.rep[user.id] || 0) + 1; saveData(); return interaction.reply(`⭐ ${user} now has **${settings.rep[user.id]}** reputation.`); }
     if (name === 'selfrole') { const role = interaction.options.getRole('role'); if (!settings.selfAssignableRoleIds.includes(role.id)) return interaction.reply({ content: 'That role is not enabled for self-assignment. An administrator can add it in the dashboard.', ephemeral: true }); if (role.position >= interaction.guild.members.me.roles.highest.position) return interaction.reply({ content: 'That role is above my highest role.', ephemeral: true }); const hasRole = interaction.member.roles.cache.has(role.id); await interaction.member.roles[hasRole ? 'remove' : 'add'](role); return interaction.reply(`${hasRole ? 'Removed' : 'Added'} **${role.name}** ${hasRole ? 'from' : 'to'} your profile.`); }
-    if (name === 'setup') { const sub = interaction.options.getSubcommand(); if (sub === 'all') { const result = await createServerSetup(interaction.guild); const failures = result.setupFailures || result.logFailures || []; const failureText = failures.length ? `\n\nCould not provision:\n${failures.map((failure) => `• ${failure}`).join('\n')}` : ''; return interaction.editReply(`Complete server setup finished.\nLog category: <#${result.logCategoryId}>\nLog channels created/reused: **${result.logChannels}/${logEventKeys.length}**\nRules: <#${result.rulesChannelId || settings.rulesChannelId}>\nWelcome: <#${result.welcomeChannelId || settings.welcomeChannelId}>\nVerification: <#${result.verificationChannelId || settings.verificationChannelId}> (role <@&${result.verifiedRoleId}>)\nSuggestions: <#${result.suggestionsChannelId}>\nReminders: <#${result.remindersChannelId}>\nQuran voice: <#${result.quranChannelId}>\nVoice control: <#${result.voiceControlChannelId}>\nJoin to create: <#${result.joinToCreateChannelId}>\nAFK: <#${result.afkChannelId}> (role <@&${result.afkRoleId}>)\nClans: <#${result.clansChannelId}> | Wars: <#${result.clanWarsChannelId}> | Shop: <#${result.clanShopChannelId}>\nGames: <#${result.gamesChannelId}> | Events: <#${result.eventsChannelId}>\nEconomy: <#${result.economyChannelId}> | Shop: <#${result.shopChannelId}>\nVoice leaderboard: <#${result.voiceLeaderboardChannelId}>\nTicket category: <#${result.ticketCategoryId}> | Archive: <#${result.ticketArchiveChannelId}> | Ratings: <#${result.ticketRatingsChannelId}>\nModeration alerts: <#${result.moderationAlertsChannelId}>${failureText}`); } if (sub === 'welcome') settings.welcomeChannelId = interaction.options.getChannel('channel').id; if (sub === 'logs') { const event = interaction.options.getString('event'); const keys = event === 'all' ? logEventKeys : [event]; for (const key of keys) await ensurePrivateLogChannel(interaction.guild, key); settings.logChannelId = settings.logChannels[keys[0]] || settings.logChannelId; } if (sub === 'rules') { settings.rulesChannelId = interaction.options.getChannel('channel').id; settings.rulesText = interaction.options.getString('text'); } if (sub === 'ticket') await createTicketSetup(interaction.guild); if (sub === 'security') { settings.security.antiSpam = interaction.options.getBoolean('spam'); settings.security.antiInvite = interaction.options.getBoolean('invites'); settings.security.antiCaps = interaction.options.getBoolean('caps'); settings.security.antiRaid = interaction.options.getBoolean('raid'); } if (sub === 'prefix') { const value = interaction.options.getString('value').trim(); if (/\s/.test(value)) return interaction.editReply({ content: 'The prefix cannot contain spaces.' }); settings.prefix = value; } if (sub === 'automod') settings.automod = interaction.options.getBoolean('enabled'); saveData(); return interaction.editReply(sub === 'logs' ? `Private log channels created for **${interaction.options.getString('event')}** inside the **Server Logs** category.` : `Updated **${sub}** settings. Text commands now use **${settings.prefix}**.`); }
+    if (name === 'setup') { const sub = interaction.options.getSubcommand(); if (sub === 'all') { const result = await createServerSetup(interaction.guild); const failures = result.setupFailures || result.logFailures || []; const failureText = failures.length ? `\n\nCould not provision:\n${failures.map((failure) => `• ${failure}`).join('\n')}` : ''; return interaction.editReply(`Complete server setup finished.\nLog category: <#${result.logCategoryId}>\nLog channels created/reused: **${result.logChannels}/${logEventKeys.length}**\nRules: <#${result.rulesChannelId || settings.rulesChannelId}>\nWelcome: <#${result.welcomeChannelId || settings.welcomeChannelId}>\nVerification: <#${result.verificationChannelId || settings.verificationChannelId}> (role <@&${result.verifiedRoleId}>)\nSuggestions: <#${result.suggestionsChannelId}>\nReminders: <#${result.remindersChannelId}>\n    Hadith: <#${result.hadithChannelId}>
+    Quran: <#${result.quranChannelId}>\nVoice control: <#${result.voiceControlChannelId}>\nJoin to create: <#${result.joinToCreateChannelId}>\nAFK: <#${result.afkChannelId}> (role <@&${result.afkRoleId}>)\nClans: <#${result.clansChannelId}> | Wars: <#${result.clanWarsChannelId}> | Shop: <#${result.clanShopChannelId}>\nGames: <#${result.gamesChannelId}> | Events: <#${result.eventsChannelId}>\nEconomy: <#${result.economyChannelId}> | Shop: <#${result.shopChannelId}>\nVoice leaderboard: <#${result.voiceLeaderboardChannelId}>\nTicket category: <#${result.ticketCategoryId}> | Archive: <#${result.ticketArchiveChannelId}> | Ratings: <#${result.ticketRatingsChannelId}>\nModeration alerts: <#${result.moderationAlertsChannelId}>${failureText}`); } if (sub === 'welcome') settings.welcomeChannelId = interaction.options.getChannel('channel').id; if (sub === 'logs') { const event = interaction.options.getString('event'); const keys = event === 'all' ? logEventKeys : [event]; for (const key of keys) await ensurePrivateLogChannel(interaction.guild, key); settings.logChannelId = settings.logChannels[keys[0]] || settings.logChannelId; } if (sub === 'rules') { settings.rulesChannelId = interaction.options.getChannel('channel').id; settings.rulesText = interaction.options.getString('text'); } if (sub === 'ticket') await createTicketSetup(interaction.guild); if (sub === 'security') { settings.security.antiSpam = interaction.options.getBoolean('spam'); settings.security.antiInvite = interaction.options.getBoolean('invites'); settings.security.antiCaps = interaction.options.getBoolean('caps'); settings.security.antiRaid = interaction.options.getBoolean('raid'); } if (sub === 'prefix') { const value = interaction.options.getString('value').trim(); if (/\s/.test(value)) return interaction.editReply({ content: 'The prefix cannot contain spaces.' }); settings.prefix = value; } if (sub === 'automod') settings.automod = interaction.options.getBoolean('enabled'); saveData(); return interaction.editReply(sub === 'logs' ? `Private log channels created for **${interaction.options.getString('event')}** inside the **Server Logs** category.` : `Updated **${sub}** settings. Text commands now use **${settings.prefix}**.`); }
     if (name === 'ticket') { const channel = await createTicketChannel(interaction.guild, interaction.user, settings); await sendLog(interaction.guild, 'Ticket opened', `${interaction.user.tag} opened ${channel}.`); return interaction.reply({ content: `Your private ticket is ready: ${channel}`, ephemeral: true }); }
   } catch (error) { if (error?.code === 10062 || error?.rawError?.code === 10062) return; console.error(error); const response = { content: 'Something went wrong while running that command.', ephemeral: true }; try { if (interaction.deferred) await interaction.editReply(response); else if (interaction.replied) await interaction.followUp(response); else await interaction.reply(response); } catch (replyError) { if (replyError?.code !== 10062) console.error('Could not respond to interaction:', replyError); } }
 });
