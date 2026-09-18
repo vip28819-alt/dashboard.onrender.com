@@ -62,7 +62,16 @@ const defaults = {
   afkChannelId: null,
   suggestionsChannelId: null,
   suggestions: {},
-  islamicReminders: { enabled: false, channelId: null, hourly: true, friday: true },
+  islamicReminders: {
+    enabled: false,
+    channelId: null,
+    hourly: true,
+    friday: true,
+    hadithEnabled: true,
+    hadithIntervalMinutes: 60,
+    verseEnabled: true,
+    verseIntervalMinutes: 120
+  },
   goodbyeChannelId: null,
   goodbyeMessage: '{username} has left **{server}**. We will remember you!',
   logChannelId: null,
@@ -154,6 +163,7 @@ function getGuildData(guildId) {
   guildData[guildId].suggestionsChannelId ??= defaults.suggestionsChannelId;
   guildData[guildId].suggestions ??= {};
   guildData[guildId].islamicReminders ??= structuredClone(defaults.islamicReminders);
+  guildData[guildId].islamicReminders = { ...structuredClone(defaults.islamicReminders), ...guildData[guildId].islamicReminders };
   guildData[guildId].commandAliases = { ...structuredClone(defaults.commandAliases), ...(guildData[guildId].commandAliases || {}) };
   guildData[guildId].security ??= structuredClone(defaults.security);
   guildData[guildId].security = { ...structuredClone(defaults.security), ...guildData[guildId].security };
@@ -870,20 +880,36 @@ client.once(Events.ClientReady, async (readyClient) => {
       const settings = getGuildData(guild.id);
       const reminders = settings.islamicReminders;
       if (!reminders.enabled || !reminders.channelId || (friday && !reminders.friday) || (!friday && !reminders.hourly)) continue;
-      const reminderKey = `${guild.id}:${friday ? now.toISOString().slice(0, 10) : now.toISOString().slice(0, 13)}`;
-      if (reminderState.has(reminderKey)) continue;
       const channel = guild.channels.cache.get(reminders.channelId);
       if (!channel?.isTextBased()) continue;
-      const text = friday ? 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' : 'قال رسول الله ﷺ: «من صلى عليّ واحدة صلى الله عليه بها عشراً».';
-      try {
-        await channel.send({ embeds: [guildEmbed(guild, friday ? 'تذكير الجمعة' : 'تذكير إيماني', text, 0xd79a45)] });
-      } catch (error) {
-        console.error(`Could not send reminder in ${guild.name}:`, error.message);
-        continue;
+      const sendScheduled = async (kind, enabled, intervalMinutes, title, text) => {
+        if (!enabled) return;
+        const interval = Math.max(1, Number(intervalMinutes) || 60);
+        const slot = Math.floor(now.getTime() / (interval * 60 * 1000));
+        const reminderKey = `${guild.id}:${kind}:${slot}`;
+        if (reminderState.has(reminderKey)) return;
+        try {
+          await channel.send({ embeds: [guildEmbed(guild, title, text, 0xd79a45)] });
+          reminderState.set(reminderKey, true);
+        } catch (error) {
+          console.error(`Could not send ${kind} reminder in ${guild.name}:`, error.message);
+        }
+      };
+      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.hadithIntervalMinutes, 'حديث اليوم', 'قال رسول الله ﷺ: «من صلى عليّ واحدة صلى الله عليه بها عشراً».');
+      await sendScheduled('verse', reminders.verseEnabled && reminders.hourly, reminders.verseIntervalMinutes, 'آية للتذكير', 'قال الله تعالى: «ألا بذكر الله تطمئن القلوب».');
+      if (friday && reminders.friday) {
+        const fridayKey = `${guild.id}:friday:${now.toISOString().slice(0, 10)}`;
+        if (!reminderState.has(fridayKey)) {
+          try {
+            await channel.send({ embeds: [guildEmbed(guild, 'تذكير الجمعة', 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.', 0xd79a45)] });
+            reminderState.set(fridayKey, true);
+          } catch (error) {
+            console.error(`Could not send Friday reminder in ${guild.name}:`, error.message);
+          }
+        }
       }
-      reminderState.set(reminderKey, true);
     }
-  }, 60 * 60 * 1000);
+  }, 60 * 1000);
 });
 client.on(Events.GuildCreate, async (guild) => {
   if (!process.env.DISCORD_TOKEN || !(process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID)) return;
