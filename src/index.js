@@ -9,6 +9,9 @@ import {
   AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   StringSelectMenuBuilder,
   EmbedBuilder,
   Events,
@@ -53,6 +56,7 @@ const defaults = {
   welcomeChannelId: null,
   welcomeMessage: 'Welcome {user} to **{server}**!',
   welcomeCardEnabled: true,
+  welcomeImageUrl: null,
   verificationEnabled: false,
   verificationChannelId: null,
   verificationMessageId: null,
@@ -61,6 +65,9 @@ const defaults = {
   afkRoleId: null,
   afkChannelId: null,
   suggestionsChannelId: null,
+  clanApplicationChannelId: null,
+  clanApplicationMessageId: null,
+  clanApplications: {},
   suggestions: {},
   islamicReminders: {
     enabled: false,
@@ -155,6 +162,7 @@ function getGuildData(guildId) {
   guildData[guildId].autoReplies ??= [];
   guildData[guildId].welcomeDelivery ??= defaults.welcomeDelivery;
   guildData[guildId].welcomeCardEnabled ??= defaults.welcomeCardEnabled;
+  guildData[guildId].welcomeImageUrl ??= defaults.welcomeImageUrl;
   guildData[guildId].verificationEnabled ??= defaults.verificationEnabled;
   guildData[guildId].verificationChannelId ??= defaults.verificationChannelId;
   guildData[guildId].verificationMessageId ??= defaults.verificationMessageId;
@@ -163,6 +171,9 @@ function getGuildData(guildId) {
   guildData[guildId].afkRoleId ??= defaults.afkRoleId;
   guildData[guildId].afkChannelId ??= defaults.afkChannelId;
   guildData[guildId].suggestionsChannelId ??= defaults.suggestionsChannelId;
+  guildData[guildId].clanApplicationChannelId ??= defaults.clanApplicationChannelId;
+  guildData[guildId].clanApplicationMessageId ??= defaults.clanApplicationMessageId;
+  guildData[guildId].clanApplications ??= {};
   guildData[guildId].suggestions ??= {};
   guildData[guildId].islamicReminders ??= structuredClone(defaults.islamicReminders);
   guildData[guildId].islamicReminders = { ...structuredClone(defaults.islamicReminders), ...guildData[guildId].islamicReminders };
@@ -231,10 +242,10 @@ function commandGuide() {
   }).join('\n');
 }
 const featureGuide = 'Features: moderation and AutoMod, anti-raid protection, complete /setup all provisioning, welcome cards and verification, tickets with categories/transcripts/ratings, leveling and member profiles, clans and clan wars/shop rooms, join-to-create voice rooms, AFK roles, economy and shop rooms, suggestions and voting, games and events, voice leaderboards, server logs, and scheduled Islamic reminders.';
-function welcomeCard(member) {
+function welcomeCard(member, imageUrl = null) {
   const server = member.guild.name.replace(/[<&>"]/g, '');
   const user = member.user.username.replace(/[<&>"]/g, '');
-  const avatar = member.user.displayAvatarURL({ extension: 'png', size: 256 });
+  const avatar = typeof imageUrl === 'string' && /^https?:\/\/\S+$/i.test(imageUrl.trim()) ? imageUrl.trim() : member.user.displayAvatarURL({ extension: 'png', size: 256 });
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500"><defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#17122b"/><stop offset="1" stop-color="#6558ed"/></linearGradient></defs><rect width="1200" height="500" rx="36" fill="url(#g)"/><circle cx="170" cy="250" r="112" fill="#0b1021" stroke="#d79a45" stroke-width="8"/><image href="${avatar}" x="70" y="150" width="200" height="200" clip-path="circle(100px at 100px 100px)"/><text x="340" y="205" fill="#d79a45" font-size="30" font-family="Arial">أهلاً وسهلاً بك</text><text x="340" y="270" fill="white" font-size="50" font-weight="700" font-family="Arial">${user}</text><text x="340" y="330" fill="#e8edf7" font-size="25" font-family="Arial">منوّر بين إخوانك في ${server}</text><text x="340" y="385" fill="#c8c1e8" font-size="21" font-family="Arial">نتمنى لك وقتاً ممتعاً معنا</text></svg>`;
   return new AttachmentBuilder(Buffer.from(svg), { name: 'welcome-card.svg' });
 }
@@ -249,6 +260,15 @@ async function publishVerificationPanel(guild, settings) {
   settings.verificationEnabled = true;
   saveData();
   return message;
+}
+async function ensureVerificationPanel(guild) {
+  const settings = getGuildData(guild.id);
+  if (!settings.verificationEnabled || !settings.verificationChannelId || !settings.verifiedRoleId) return;
+  const channel = guild.channels.cache.get(settings.verificationChannelId);
+  if (!channel?.isTextBased()) return;
+  if (settings.verificationMessageId && await channel.messages.fetch(settings.verificationMessageId).catch(() => null)) return;
+  settings.verificationMessageId = null;
+  await publishVerificationPanel(guild, settings);
 }
 function getXpRank(settings, userId) {
   const rows = Object.entries(settings.xp).sort(([, first], [, second]) => (second.xp || 0) - (first.xp || 0));
@@ -547,6 +567,7 @@ async function createServerSetup(guild) {
   const afk = await provision('afk channel', () => makeVoice('afk', 'Members in this channel receive the AFK role.', voiceCategory?.id));
   if (afk) await provision('AFK channel speaking restriction', () => afk.permissionOverwrites.edit(everyone, { Connect: true, Speak: false, ViewChannel: true }));
   const clans = await provision('clans channel', () => makeText('clans', 'Clan announcements and activity.', activitiesCategory?.id));
+  const clanApplications = await provision('clan creation channel', () => makeText('clan-creation', 'Apply to create a clan. Staff approval is required.', activitiesCategory?.id));
   const clanWars = await provision('clan wars channel', () => makeText('clan-wars', 'Weekly clan competitions and results.', activitiesCategory?.id));
   const clanShop = await provision('clan shop channel', () => makeText('clan-shop', 'Clan upgrades and rewards.', activitiesCategory?.id));
   const games = await provision('games channel', () => makeText('games', 'Community games and events.', activitiesCategory?.id));
@@ -560,6 +581,17 @@ async function createServerSetup(guild) {
   const voiceLeaderboard = await provision('voice leaderboard channel', () => makeText('voice-leaderboard', 'Weekly voice activity leaderboard.', activitiesCategory?.id));
   const verifiedRole = await provision('Verified role', () => makeRole('Verified', 0x57f287));
   const afkRole = await provision('AFK role', () => makeRole('AFK', 0x95a5a6));
+  const staffRoles = guild.roles.cache.filter((role) => role.id !== guild.id && role.permissions.has(PermissionsBitField.Flags.ManageGuild));
+  const makeStaffOnly = async (channel) => {
+    if (!channel) return;
+    await channel.permissionOverwrites.edit(everyone, { ViewChannel: false });
+    await channel.permissionOverwrites.edit(guild.members.me, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+    await Promise.all(staffRoles.map((role) => channel.permissionOverwrites.edit(role, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true })));
+  };
+  await provision('private support category', () => supportCategory?.permissionOverwrites.edit(everyone, { ViewChannel: false }));
+  for (const [label, channel] of [['suggestions review privacy', suggestionsReview], ['ticket archive privacy', ticketArchive], ['ticket ratings privacy', ticketRatings], ['moderation alerts privacy', moderationAlerts]]) {
+    await provision(label, () => makeStaffOnly(channel));
+  }
   const logChannels = [];
   const logFailures = [];
   for (const eventKey of logEventKeys) {
@@ -575,6 +607,7 @@ async function createServerSetup(guild) {
   settings.welcomeChannelId = welcome?.id || settings.welcomeChannelId;
   settings.verificationChannelId = verification?.id || settings.verificationChannelId;
   settings.suggestionsChannelId = suggestions?.id || settings.suggestionsChannelId;
+  settings.clanApplicationChannelId = clanApplications?.id || settings.clanApplicationChannelId;
   settings.joinToCreateChannelId = joinToCreate?.id || settings.joinToCreateChannelId;
   settings.joinToCreateControlChannelId = voiceControl?.id || settings.joinToCreateControlChannelId;
   settings.afkChannelId = afk?.id || settings.afkChannelId;
@@ -590,6 +623,17 @@ async function createServerSetup(guild) {
   if (voiceControl && !voiceControl.topic?.includes('Potato voice setup')) {
     await voiceControl.setTopic('Potato voice setup: join #join-to-create to receive a private temporary voice room; empty rooms are removed automatically.').catch(() => {});
     await voiceControl.send({ embeds: [guildEmbed(guild, 'Temporary voice rooms', 'انضم إلى قناة **join-to-create** لإنشاء غرفة صوتية مؤقتة خاصة بك. سيتم حذف الغرفة تلقائياً عند خلوها.\n\nادخل قناة **afk** للحصول على رتبة الخمول، وتُزال الرتبة عند مغادرتها.', 0x6558ed)] }).catch(() => {});
+  }
+  if (clanApplications) {
+    await clanApplications.permissionOverwrites.edit(everyone, { ViewChannel: true, ReadMessageHistory: true, SendMessages: false }).catch(() => {});
+    if (settings.clanApplicationMessageId && !await clanApplications.messages.fetch(settings.clanApplicationMessageId).catch(() => null)) settings.clanApplicationMessageId = null;
+    if (!settings.clanApplicationMessageId) {
+      const panel = await clanApplications.send({
+        embeds: [guildEmbed(guild, 'Clan applications', 'اضغط الزر لفتح طلب خاص لإنشاء كلان. سيقوم فريق الإدارة بمراجعة الطلب والموافقة عليه أو رفضه.', 0xd79a45)],
+        components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`clan_apply:${guild.id}`).setLabel('طلب إنشاء كلان').setStyle(ButtonStyle.Primary))]
+      }).catch(() => null);
+      if (panel) settings.clanApplicationMessageId = panel.id;
+    }
   }
   await provision('ticket system', () => createTicketSetup(guild));
   if (settings.verificationMessageId) {
@@ -611,6 +655,7 @@ async function createServerSetup(guild) {
     welcomeChannelId: welcome?.id,
     verificationChannelId: verification?.id,
     suggestionsChannelId: suggestions?.id,
+    clanApplicationChannelId: clanApplications?.id,
     remindersChannelId: reminders?.id,
     quranChannelId: quran?.id,
     voiceControlChannelId: voiceControl?.id,
@@ -876,6 +921,9 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}. Connected guilds: ${readyClient.guilds.cache.size}.`);
   if (!readyClient.guilds.cache.size) console.warn('The bot is connected but is not currently visible in any server. Recheck the invite and bot token.');
   await registerGuildCommands(readyClient);
+  for (const guild of readyClient.guilds.cache.values()) {
+    await ensureVerificationPanel(guild).catch((error) => console.error(`Could not ensure verification panel in ${guild.name}:`, error.message));
+  }
   setInterval(async () => {
     const now = new Date();
     const friday = now.getUTCDay() === 5;
@@ -945,11 +993,13 @@ client.on(Events.GuildMemberAdd, async (member) => {
   }
   if (settings.welcomeDelivery === 'dm') await member.send(replaceTokens(settings.welcomeMessage, member, member.guild)).catch(() => {});
   if (settings.welcomeDelivery === 'channel' && settings.welcomeChannelId) {
-    const channel = member.guild.channels.cache.get(settings.welcomeChannelId);
+    const channel = member.guild.channels.cache.get(settings.welcomeChannelId) || await member.guild.channels.fetch(settings.welcomeChannelId).catch(() => null);
     if (channel?.isTextBased()) {
       const payload = { content: replaceTokens(settings.welcomeMessage, member, member.guild), embeds: [guildEmbed(member.guild, 'Welcome!', replaceTokens(settings.welcomeMessage, member, member.guild), 0x57f287)] };
-      if (settings.welcomeCardEnabled) payload.files = [welcomeCard(member)];
-      await channel.send(payload);
+      if (settings.welcomeCardEnabled) payload.files = [welcomeCard(member, settings.welcomeImageUrl)];
+      await channel.send(payload).catch((error) => console.error(`Could not send welcome message in ${member.guild.name}:`, error.message));
+    } else {
+      console.error(`Could not send welcome message in ${member.guild.name}: configured welcome channel is unavailable.`);
     }
   }
 });
@@ -1191,6 +1241,49 @@ client.on(Events.VoiceStateUpdate, async (before, after) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.guild) return;
   const settings = getGuildData(interaction.guild.id);
+  if (interaction.isButton() && interaction.customId === `clan_apply:${interaction.guild.id}`) {
+    const modal = new ModalBuilder().setCustomId(`clan_apply_modal:${interaction.guild.id}`).setTitle('Clan application');
+    modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('clan_name').setLabel('Clan name').setPlaceholder('Enter the name you want for your clan').setStyle(TextInputStyle.Short).setMaxLength(24).setRequired(true)));
+    return interaction.showModal(modal);
+  }
+  if (interaction.isModalSubmit() && interaction.customId === `clan_apply_modal:${interaction.guild.id}`) {
+    const name = cleanClanName(interaction.fields.getTextInputValue('clan_name'));
+    if (!name) return interaction.reply({ content: 'Enter a valid clan name.', ephemeral: true });
+    if (getMemberClan(settings, interaction.user.id)) return interaction.reply({ content: 'You already belong to a clan.', ephemeral: true });
+    const applicationChannel = interaction.guild.channels.cache.get(settings.clanApplicationChannelId);
+    if (!applicationChannel?.isTextBased()) return interaction.reply({ content: 'The clan application channel is not configured.', ephemeral: true });
+    const existing = interaction.guild.channels.cache.find((channel) => channel.topic === `clan-application:${interaction.user.id}`);
+    if (existing) return interaction.reply({ content: `You already have an open application: ${existing}`, ephemeral: true });
+    const staffRoles = interaction.guild.roles.cache.filter((role) => role.id !== interaction.guild.id && role.permissions.has(PermissionsBitField.Flags.ManageGuild));
+    const channel = await interaction.guild.channels.create({ name: `clan-application-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 90), type: ChannelType.GuildText, topic: `clan-application:${interaction.user.id}`, parent: applicationChannel.parentId || undefined, permissionOverwrites: [{ id: interaction.guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory] }, { id: interaction.guild.members.me.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }, ...staffRoles.map((role) => ({ id: role.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }))] });
+    settings.clanApplications[channel.id] = { channelId: channel.id, userId: interaction.user.id, name, createdAt: Date.now() };
+    saveData();
+    await channel.send({ embeds: [guildEmbed(interaction.guild, 'Clan application', `Applicant: <@${interaction.user.id}>\nRequested name: **${name}**\n\nStaff can approve or reject this application.`, 0xd79a45)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`clan_approve:${channel.id}`).setLabel('Approve').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`clan_reject:${channel.id}`).setLabel('Reject').setStyle(ButtonStyle.Danger))] });
+    return interaction.reply({ content: `Your private clan application is ready: ${channel}`, ephemeral: true });
+  }
+  if (interaction.isButton() && (interaction.customId.startsWith('clan_approve:') || interaction.customId.startsWith('clan_reject:'))) {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) return interaction.reply({ content: 'Only server staff can review clan applications.', ephemeral: true });
+    const channelId = interaction.customId.split(':')[1];
+    const application = settings.clanApplications[channelId];
+    if (!application) return interaction.reply({ content: 'This clan application is no longer active.', ephemeral: true });
+    const channel = interaction.guild.channels.cache.get(channelId);
+    if (interaction.customId.startsWith('clan_reject:')) {
+      delete settings.clanApplications[channelId];
+      saveData();
+      await channel?.send('This clan application was rejected by staff.').catch(() => {});
+      return interaction.reply({ content: 'Application rejected.', ephemeral: true });
+    }
+    try {
+      const owner = await interaction.guild.members.fetch(application.userId);
+      const result = await createClan(interaction.guild, settings, owner.user, application.name);
+      delete settings.clanApplications[channelId];
+      saveData();
+      await channel?.send(`Approved. Your clan **${result.clan.name}** has been created: ${result.clan.textChannelId ? `<#${result.clan.textChannelId}>` : ''}`).catch(() => {});
+      return interaction.reply({ content: `Application approved and clan **${result.clan.name}** created.`, ephemeral: true });
+    } catch (error) {
+      return interaction.reply({ content: `Could not approve application: ${error.message}`, ephemeral: true });
+    }
+  }
   if (interaction.isButton() && interaction.customId === `verify:${interaction.guild.id}`) {
     const role = settings.verifiedRoleId ? interaction.guild.roles.cache.get(settings.verifiedRoleId) : null;
     if (!role) return interaction.reply({ content: 'The verification role is not configured yet.', ephemeral: true });

@@ -30,7 +30,7 @@ Administrators can preview and copy a server structure with `/copyserver source_
 
 ## Commands
 
-- `/setup all` creates or reuses the complete supported server blueprint: private logs, Community, Support, Voice, Activities, and Islamic categories; rules, welcome, verification, suggestions, reminders, Quran voice, join-to-create voice, AFK role/channel, clans, clan wars, clan shop, games, events, economy, shop, voice leaderboard, ticket archive, ticket ratings, moderation alerts, quarantine and verified roles, and the ticket panel. It has no application-side room count limit; the response lists any resources blocked by permissions or Discord limits.
+- `/setup all` creates or reuses the complete supported server blueprint: private logs, Community, Support, Voice, Activities, and Islamic categories; rules, welcome, verification, suggestions, reminders, Quran voice, join-to-create voice, AFK role/channel, clan announcements, a clan-creation application channel with staff approve/reject tickets, clans, clan wars, clan shop, games, events, economy, shop, voice leaderboard, ticket archive, ticket ratings, moderation alerts, quarantine and verified roles, and the ticket panel. Clan text and voice rooms deny access to `@everyone` and grant access only to the clan role and owner. It has no application-side room count limit; the response lists any resources blocked by permissions or Discord limits.
 - `/deleteallchannels confirm:true` permanently deletes every channel the bot can manage. Administrator permission and the explicit confirmation are required.
 - `/setup welcome channel:#welcome`
 - `/setup logs event:all` or `/log setup` to create a private category with one channel per log event
