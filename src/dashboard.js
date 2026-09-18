@@ -343,6 +343,16 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     try { return response.json(await createServerSetup(guild)); } catch (error) { return response.status(500).json({ error: error.message }); }
   });
+  app.post('/api/guilds/:id/clans/panel', async (request, response) => {
+    const guild = client.guilds.cache.get(request.params.id);
+    if (!guild) return response.status(404).json({ error: 'Server not found.' });
+    try {
+      const result = await createServerSetup(guild);
+      return response.json({ ok: true, channelId: result.clanApplicationChannelId, message: 'Clan application panel is ready.' });
+    } catch (error) {
+      return response.status(500).json({ error: error.message });
+    }
+  });
   app.locals.createTicketSetup = createTicketSetup;
   const port = Number(process.env.PORT || process.env.DASHBOARD_PORT || 3000);
   const host = process.env.DASHBOARD_HOST || (process.env.PORT ? '0.0.0.0' : '127.0.0.1');

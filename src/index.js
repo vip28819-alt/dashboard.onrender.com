@@ -561,6 +561,7 @@ async function createServerSetup(guild) {
   const verification = await provision('verification channel', () => makeText('verification', 'Verify here to receive access to the server.', communityCategory?.id));
   const suggestions = await provision('suggestions channel', () => makeText('suggestions', 'Community suggestions and voting.', communityCategory?.id));
   const reminders = await provision('reminders channel', () => makeText('reminders', 'Scheduled Islamic reminders.', islamicCategory?.id));
+  const islamic = await provision('Islamic channel', () => makeText('islamic', 'Quran verses, hadith, and Islamic reminders.', islamicCategory?.id));
   const quran = await provision('quran channel', () => makeVoice('quran', 'Quran audio channel.', islamicCategory?.id));
   const voiceControl = await provision('voice control channel', () => makeText('voice-control', 'Voice room instructions and controls.', voiceCategory?.id));
   const joinToCreate = await provision('join-to-create channel', () => makeVoice('join-to-create', 'Join this channel to create a private voice room.', voiceCategory?.id));
@@ -617,7 +618,7 @@ async function createServerSetup(guild) {
   settings.verificationEnabled = true;
   settings.security.antiBotJoin = true;
   settings.security.antiPrivilegeChanges = true;
-  settings.islamicReminders = { ...settings.islamicReminders, enabled: true, channelId: reminders?.id || settings.islamicReminders.channelId, hourly: true, friday: true };
+  settings.islamicReminders = { ...settings.islamicReminders, enabled: true, channelId: islamic?.id || reminders?.id || settings.islamicReminders.channelId, hourly: true, friday: true };
   settings.rulesText = settings.rulesText || 'Be respectful, follow Discord rules, and keep this community welcoming.';
   if (rules) await rules.send({ embeds: [guildEmbed(guild, 'Server rules', settings.rulesText, 0xfee75c)] }).catch(() => {});
   if (voiceControl && !voiceControl.topic?.includes('Potato voice setup')) {
@@ -657,6 +658,7 @@ async function createServerSetup(guild) {
     suggestionsChannelId: suggestions?.id,
     clanApplicationChannelId: clanApplications?.id,
     remindersChannelId: reminders?.id,
+    islamicChannelId: islamic?.id,
     quranChannelId: quran?.id,
     voiceControlChannelId: voiceControl?.id,
     joinToCreateChannelId: joinToCreate?.id,
