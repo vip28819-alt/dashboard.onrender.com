@@ -42,11 +42,14 @@ setTimeout(loadExtendedAliases,600);window.addEventListener('focus',loadExtended
 
 export function startDashboard({ client, getGuildData, saveData, createTicketSetup, createServerSetup, ensurePrivateLogChannel, publishVerificationPanel }) {
   const app = express();
+  app.set('trust proxy', 1);
   const sessions = new Map();
   const publicUrl = process.env.DASHBOARD_PUBLIC_URL;
-  const clientId = process.env.DISCORD_CLIENT_ID;
+  const clientId = process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID;
   const clientSecret = process.env.DISCORD_CLIENT_SECRET;
   const redirectUri = process.env.DISCORD_REDIRECT_URI || (publicUrl ? `${publicUrl.replace(/\/$/, '')}/auth/callback` : null);
+  const secureCookies = /^https:\/\//i.test(publicUrl || '');
+  const cookieSuffix = `HttpOnly; SameSite=Lax;${secureCookies ? ' Secure;' : ''} Path=/`;
   const parseCookies = (value = '') => Object.fromEntries(value.split(';').map((part) => part.trim().split('=').map(decodeURIComponent)).filter((parts) => parts.length === 2));
   const getSession = (request) => {
     const id = parseCookies(request.headers.cookie).dashboard_session;
@@ -55,7 +58,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     return session && session.expiresAt > Date.now() ? session : null;
   };
   const requireAuth = (request, response, next) => {
-    if (!clientId || !clientSecret || !redirectUri) return response.status(503).json({ error: 'Dashboard OAuth is not configured. Set DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, and DASHBOARD_PUBLIC_URL.' });
+    if (!clientId || !clientSecret || !redirectUri) return response.status(503).json({ error: 'Dashboard OAuth is not configured. Set DISCORD_CLIENT_ID (or CLIENT_ID), DISCORD_CLIENT_SECRET, and DASHBOARD_PUBLIC_URL.' });
     const session = getSession(request);
     if (!session) return response.status(401).json({ error: 'Sign in with Discord to use the dashboard.' });
     request.dashboardSession = session;
@@ -78,7 +81,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
   app.get('/auth/login', (_request, response) => {
     if (!clientId || !clientSecret || !redirectUri) return response.status(503).send('Dashboard OAuth is not configured.');
     const state = crypto.randomBytes(24).toString('hex');
-    response.setHeader('Set-Cookie', `dashboard_oauth_state=${state}; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=600`);
+    response.setHeader('Set-Cookie', `dashboard_oauth_state=${state}; ${cookieSuffix}; Max-Age=600`);
     return response.redirect(`https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(clientId)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=identify%20guilds&state=${encodeURIComponent(state)}`);
   });
   app.get('/auth/callback', async (request, response) => {
@@ -96,8 +99,8 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
       const sessionId = crypto.randomBytes(32).toString('hex');
       sessions.set(sessionId, { user: await userResponse.json(), guilds: await guildResponse.json(), expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 });
       response.setHeader('Set-Cookie', [
-        `dashboard_session=${sessionId}; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=2592000`,
-        'dashboard_oauth_state=; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=0'
+        `dashboard_session=${sessionId}; ${cookieSuffix}; Max-Age=2592000`,
+        `dashboard_oauth_state=; ${cookieSuffix}; Max-Age=0`
       ]);
       return response.redirect('/dashboard');
     } catch (error) {
@@ -107,7 +110,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
   app.get('/auth/logout', (request, response) => {
     const cookies = parseCookies(request.headers.cookie);
     if (cookies.dashboard_session) sessions.delete(cookies.dashboard_session);
-    response.setHeader('Set-Cookie', 'dashboard_session=; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=0');
+    response.setHeader('Set-Cookie', `dashboard_session=; ${cookieSuffix}; Max-Age=0`);
     return response.redirect('/dashboard');
   });
   app.use('/api', requireAuth);
