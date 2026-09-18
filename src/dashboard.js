@@ -77,7 +77,10 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
   };
   app.use(express.json());
   app.get('/', (_request, response) => response.type('html').send(infoPage));
-  app.get('/dashboard', (_request, response) => response.type('html').send(dashboardPage + logsDashboardEnhancement));
+  app.get('/dashboard', (_request, response) => {
+    response.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return response.type('html').send(dashboardPage.replace('</body>', `${logsDashboardEnhancement}</body>`));
+  });
   app.get('/health', (_request, response) => response.json({ ok: true, uptime: process.uptime(), guilds: client.guilds.cache.size, timestamp: new Date().toISOString() }));
   app.get('/auth/login', (_request, response) => {
     if (!clientId || !clientSecret || !redirectUri) return response.status(503).send('Dashboard OAuth is not configured.');
