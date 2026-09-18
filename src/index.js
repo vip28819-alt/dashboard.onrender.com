@@ -464,6 +464,15 @@ async function sendTicketTranscript(guild, channel, systemId, closedBy) {
   const attachment = new AttachmentBuilder(Buffer.from(header + lines.join('\n'), 'utf8'), { name: `transcript-${channel.name}-${Date.now()}.txt` });
   await transcriptChannel.send({ content: `Transcript for **#${channel.name}** closed by <@${closedBy.id}>.`, files: [attachment] }).catch(() => {});
 }
+async function makeStaffOnlyChannel(channel) {
+  if (!channel) return;
+  const guild = channel.guild;
+  const everyone = guild.roles.everyone;
+  const staffRoles = guild.roles.cache.filter((role) => role.id !== guild.id && !role.managed && role.permissions.has(PermissionsBitField.Flags.ManageGuild));
+  await channel.permissionOverwrites.edit(everyone, { ViewChannel: false });
+  await channel.permissionOverwrites.edit(guild.members.me, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+  await Promise.all(staffRoles.map((role) => channel.permissionOverwrites.edit(role, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true })));
+}
 async function ensurePrivateLogChannel(guild, eventKey) {
   const settings = getGuildData(guild.id);
   let category = settings.logCategoryId ? guild.channels.cache.get(settings.logCategoryId) : null;
@@ -472,12 +481,14 @@ async function ensurePrivateLogChannel(guild, eventKey) {
     if (!category) category = await guild.channels.create({ name: 'Server Logs', type: ChannelType.GuildCategory, permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }] });
     settings.logCategoryId = category.id;
   }
+  await makeStaffOnlyChannel(category);
   const name = `log-${eventKey.replaceAll('_', '-')}`;
   let channel = guild.channels.cache.find((item) => item.type === ChannelType.GuildText && item.parentId === category.id && item.name === name);
   if (!channel) {
     const staffOverwrites = guild.roles.cache.filter((role) => role.id !== guild.id && role.permissions.has(PermissionsBitField.Flags.ManageGuild)).map((role) => ({ id: role.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory] }));
     channel = await guild.channels.create({ name, type: ChannelType.GuildText, parent: category.id, permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: guild.members.me.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }, ...staffOverwrites] });
   }
+  await makeStaffOnlyChannel(channel);
   settings.logChannels[eventKey] = channel.id;
   saveData();
   return channel;
@@ -515,6 +526,7 @@ async function createTicketSetup(guild, requestedSystem = null) {
   }
   const panel = system.panelChannelId ? guild.channels.cache.get(system.panelChannelId) : null;
   const ticketCategory = category?.type === ChannelType.GuildCategory ? category : await guild.channels.create({ name: `${safeName}-tickets`, type: ChannelType.GuildCategory, permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }] });
+  await makeStaffOnlyChannel(ticketCategory);
   const panelChannel = panel?.isTextBased() ? panel : await guild.channels.create({ name: `open-${safeName}`, type: ChannelType.GuildText, topic: 'Use the button below to open a private ticket.', permissionOverwrites: [{ id: guild.roles.everyone.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory], deny: [PermissionsBitField.Flags.SendMessages] }] });
   const buttonStyle = ButtonStyle[system.buttonStyle || settings.ticketButtonStyle] || ButtonStyle.Primary;
   const panelComponents = system.categories?.length
