@@ -1125,10 +1125,11 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 client.on(Events.VoiceStateUpdate, async (before, after) => {
-  const member = after.member || before.member;
-  if (!member || member.user.bot || !after.guild) return;
-  const key = `${after.guild.id}:${member.id}`;
-  const settings = getGuildData(after.guild.id);
+  const guild = after.guild || before.guild;
+  const member = after.member || before.member || await guild?.members.fetch(after.id).catch(() => null);
+  if (!guild || !member || member.user.bot) return;
+  const key = `${guild.id}:${member.id}`;
+  const settings = getGuildData(guild.id);
   const wasInVoice = Boolean(before.channelId);
   const isInVoice = Boolean(after.channelId);
   if (settings.afkRoleId && before.channelId !== after.channelId) {
@@ -1136,16 +1137,24 @@ client.on(Events.VoiceStateUpdate, async (before, after) => {
     else if (before.channelId === settings.afkChannelId) await member.roles.remove(settings.afkRoleId, 'Left AFK channel').catch(() => {});
   }
   if (after.channelId === settings.joinToCreateChannelId) {
-  const sourceChannel = after.guild.channels.cache.get(settings.joinToCreateChannelId);
-  const room = await after.guild.channels.create({ name: `${member.user.username}'s room`.slice(0, 90), type: ChannelType.GuildVoice, parent: sourceChannel?.parentId || undefined, permissionOverwrites: [{ id: after.guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak, PermissionsBitField.Flags.ManageChannels] }] }).catch(() => null);
+    const sourceChannel = guild.channels.cache.get(settings.joinToCreateChannelId) || await guild.channels.fetch(settings.joinToCreateChannelId).catch(() => null);
+    const botPermissions = guild.members.me?.permissions;
+    if (!sourceChannel || !botPermissions?.has([PermissionsBitField.Flags.ManageChannels, PermissionsBitField.Flags.MoveMembers])) {
+      console.error(`Cannot create a temporary voice room in ${guild.name}: configure Join to Create and grant Manage Channels + Move Members.`);
+      return;
+    }
+    const room = await guild.channels.create({ name: `${member.user.username}'s room`.slice(0, 90), type: ChannelType.GuildVoice, parent: sourceChannel.parentId || undefined, permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak, PermissionsBitField.Flags.ManageChannels] }] }).catch((error) => {
+      console.error(`Could not create a temporary voice room in ${guild.name}:`, error.message);
+      return null;
+    });
     if (room) {
       dynamicVoiceRooms.set(room.id, member.id);
-      await member.voice.setChannel(room, 'Join to create voice room').catch(async () => { await room.delete('Could not move member to voice room').catch(() => {}); });
+      await member.voice.setChannel(room, 'Join to create voice room').catch(async (error) => { console.error(`Could not move ${member.user.tag} into temporary voice room:`, error.message); await room.delete('Could not move member to voice room').catch(() => {}); });
     }
   }
   const ownedRoom = dynamicVoiceRooms.get(before.channelId);
   if (ownedRoom && before.channelId !== after.channelId) {
-    const channel = after.guild.channels.cache.get(before.channelId);
+    const channel = guild.channels.cache.get(before.channelId);
     if (channel?.type === ChannelType.GuildVoice && channel.members.size === 0) {
       dynamicVoiceRooms.delete(before.channelId);
       await channel.delete('Empty temporary voice room').catch(() => {});
