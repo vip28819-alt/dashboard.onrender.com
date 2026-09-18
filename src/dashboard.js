@@ -77,9 +77,13 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
   };
   app.use(express.json());
   app.get('/', (_request, response) => response.type('html').send(infoPage));
-  app.get('/dashboard', (_request, response) => {
+  app.get('/dashboard', (request, response) => {
     response.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    return response.type('html').send(dashboardPage.replace('</body>', `${logsDashboardEnhancement}</body>`));
+    const authenticated = Boolean(getSession(request));
+    const pageWithAuthState = dashboardPage
+      .replace('<body>', `<body data-authenticated="${authenticated ? 'true' : 'false'}">`)
+      .replace('</body>', `${logsDashboardEnhancement}</body>`);
+    return response.type('html').send(pageWithAuthState);
   });
   app.get('/health', (_request, response) => response.json({ ok: true, uptime: process.uptime(), guilds: client.guilds.cache.size, timestamp: new Date().toISOString() }));
   app.get('/auth/login', (_request, response) => {
