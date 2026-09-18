@@ -343,6 +343,25 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     try { return response.json(await createServerSetup(guild)); } catch (error) { return response.status(500).json({ error: error.message }); }
   });
+  app.get('/api/guilds/:id/voice/status', requireAuth, requireGuildAdmin, (request, response) => {
+    const guild = client.guilds.cache.get(request.params.id);
+    if (!guild) return response.status(404).json({ error: 'Server not found.' });
+    const settings = getGuildData(guild.id);
+    const source = guild.channels.cache.get(settings.joinToCreateChannelId) || guild.channels.cache.find((channel) => channel.type === ChannelType.GuildVoice && channel.name === 'join-to-create');
+    const botMember = guild.members.me;
+    const permissions = source?.permissionsFor(botMember);
+    return response.json({
+      configuredChannelId: settings.joinToCreateChannelId,
+      sourceChannelId: source?.id || null,
+      sourceChannelName: source?.name || null,
+      botPermissions: {
+        manageChannels: Boolean(permissions?.has('ManageChannels')),
+        moveMembers: Boolean(permissions?.has('MoveMembers')),
+        connect: Boolean(permissions?.has('Connect'))
+      },
+      ready: Boolean(source && permissions?.has('ManageChannels') && permissions?.has('MoveMembers') && permissions?.has('Connect'))
+    });
+  });
   app.post('/api/guilds/:id/clans/panel', async (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });

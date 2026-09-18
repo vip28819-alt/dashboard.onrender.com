@@ -344,6 +344,26 @@ async function createClan(guild, settings, owner, name) {
   settings.clans[clan.id] = clan;
   return clan;
 }
+async function sendVoiceControlPanel(guild, settings, room, ownerId) {
+  const controlChannel = settings.joinToCreateControlChannelId ? guild.channels.cache.get(settings.joinToCreateControlChannelId) : null;
+  if (!controlChannel?.isTextBased()) return;
+  await controlChannel.send({
+    content: `<@${ownerId}> your temporary voice room is ready: <#${room.id}>`,
+    embeds: [guildEmbed(guild, 'Temporary voice controls', 'Use the buttons below to manage your room. Only the room owner and server staff can use these controls.', 0x6558ed)],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`voice_lock:${room.id}`).setLabel('Lock').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`voice_unlock:${room.id}`).setLabel('Unlock').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`voice_hide:${room.id}`).setLabel('Hide').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`voice_show:${room.id}`).setLabel('Show').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`voice_delete:${room.id}`).setLabel('Delete').setStyle(ButtonStyle.Danger)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`voice_claim:${room.id}`).setLabel('Claim room').setStyle(ButtonStyle.Primary)
+      )
+    ]
+  }).catch((error) => console.error(`Could not send voice controls in ${guild.name}:`, error.message));
+}
 async function deleteClanResources(guild, clan) {
   await guild.channels.delete(clan.textChannelId, 'Clan deleted').catch(() => {});
   await guild.channels.delete(clan.voiceChannelId, 'Clan deleted').catch(() => {});
@@ -1185,6 +1205,13 @@ client.on(Events.VoiceStateUpdate, async (before, after) => {
   const settings = getGuildData(guild.id);
   const wasInVoice = Boolean(before.channelId);
   const isInVoice = Boolean(after.channelId);
+  const configuredSource = settings.joinToCreateChannelId ? guild.channels.cache.get(settings.joinToCreateChannelId) : null;
+  const sourceByName = guild.channels.cache.find((channel) => [ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type) && channel.name === 'join-to-create');
+  if (!configuredSource && sourceByName) {
+    settings.joinToCreateChannelId = sourceByName.id;
+    saveData();
+  }
+  const joinToCreateId = configuredSource?.id || sourceByName?.id || settings.joinToCreateChannelId;
   if (settings.afkRoleId && before.channelId !== after.channelId) {
     const afkRole = guild.roles.cache.get(settings.afkRoleId);
     const botMember = guild.members.me;
@@ -1198,11 +1225,12 @@ client.on(Events.VoiceStateUpdate, async (before, after) => {
       await member.roles.remove(afkRole, 'Left AFK channel').catch((error) => console.error(`Could not remove AFK role in ${guild.name}:`, error.message));
     }
   }
-  if (after.channelId === settings.joinToCreateChannelId) {
-    const sourceChannel = guild.channels.cache.get(settings.joinToCreateChannelId) || await guild.channels.fetch(settings.joinToCreateChannelId).catch(() => null);
+  if (after.channelId === joinToCreateId) {
+    const sourceChannel = guild.channels.cache.get(joinToCreateId) || await guild.channels.fetch(joinToCreateId).catch(() => null);
     const botPermissions = guild.members.me?.permissions;
-    if (!sourceChannel || !botPermissions?.has([PermissionsBitField.Flags.ManageChannels, PermissionsBitField.Flags.MoveMembers])) {
-      console.error(`Cannot create a temporary voice room in ${guild.name}: configure Join to Create and grant Manage Channels + Move Members.`);
+    const channelPermissions = sourceChannel?.permissionsFor(guild.members.me);
+    if (!sourceChannel || !botPermissions?.has(PermissionsBitField.Flags.ManageChannels) || !botPermissions?.has(PermissionsBitField.Flags.MoveMembers) || !channelPermissions?.has(PermissionsBitField.Flags.ManageChannels) || !channelPermissions?.has(PermissionsBitField.Flags.MoveMembers) || !channelPermissions?.has(PermissionsBitField.Flags.Connect)) {
+      console.error(`Cannot create a temporary voice room in ${guild.name}: source=${sourceChannel?.id || 'missing'}, botGuildPermissions=${botPermissions?.has(PermissionsBitField.Flags.ManageChannels) && botPermissions?.has(PermissionsBitField.Flags.MoveMembers)}, botChannelPermissions=${channelPermissions?.has(PermissionsBitField.Flags.ManageChannels) && channelPermissions?.has(PermissionsBitField.Flags.MoveMembers) && channelPermissions?.has(PermissionsBitField.Flags.Connect)}.`);
       return;
     }
     const room = await guild.channels.create({ name: `${member.user.username}'s room`.slice(0, 90), type: ChannelType.GuildVoice, parent: sourceChannel.parentId || undefined, permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] }, { id: member.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak, PermissionsBitField.Flags.ManageChannels] }] }).catch((error) => {
@@ -1211,6 +1239,7 @@ client.on(Events.VoiceStateUpdate, async (before, after) => {
     });
     if (room) {
       dynamicVoiceRooms.set(room.id, member.id);
+      await sendVoiceControlPanel(guild, settings, room, member.id);
       await member.voice.setChannel(room, 'Join to create voice room').catch(async (error) => { console.error(`Could not move ${member.user.tag} into temporary voice room:`, error.message); await room.delete('Could not move member to voice room').catch(() => {}); });
     }
   }
@@ -1243,6 +1272,33 @@ client.on(Events.VoiceStateUpdate, async (before, after) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.guild) return;
   const settings = getGuildData(interaction.guild.id);
+  if (interaction.isButton() && interaction.customId.startsWith('voice_')) {
+    const [action, roomId] = interaction.customId.split(':');
+    const room = interaction.guild.channels.cache.get(roomId);
+    const ownerId = dynamicVoiceRooms.get(roomId);
+    const isStaff = interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild);
+    if (!room || room.type !== ChannelType.GuildVoice) return interaction.reply({ content: 'This temporary voice room no longer exists.', ephemeral: true });
+    if (!isStaff && ownerId !== interaction.user.id) return interaction.reply({ content: 'Only the room owner or server staff can use these controls.', ephemeral: true });
+    try {
+      if (action === 'voice_lock') await room.permissionOverwrites.edit(interaction.guild.roles.everyone, { Connect: false });
+      if (action === 'voice_unlock') await room.permissionOverwrites.edit(interaction.guild.roles.everyone, { Connect: true });
+      if (action === 'voice_hide') await room.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
+      if (action === 'voice_show') await room.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: true });
+      if (action === 'voice_claim') {
+        dynamicVoiceRooms.set(roomId, interaction.user.id);
+        await room.permissionOverwrites.edit(interaction.user, { ViewChannel: true, Connect: true, Speak: true, ManageChannels: true });
+      }
+      if (action === 'voice_delete') {
+        dynamicVoiceRooms.delete(roomId);
+        await room.delete('Temporary voice room deleted from control panel');
+        return interaction.reply({ content: 'Temporary voice room deleted.', ephemeral: true });
+      }
+      return interaction.reply({ content: `Voice room updated: **${action.replace('voice_', '')}**.`, ephemeral: true });
+    } catch (error) {
+      console.error(`Could not apply voice control in ${interaction.guild.name}:`, error.message);
+      return interaction.reply({ content: 'I could not update that voice room. Check my Manage Channels permission.', ephemeral: true });
+    }
+  }
   if (interaction.isButton() && interaction.customId === `clan_apply:${interaction.guild.id}`) {
     const modal = new ModalBuilder().setCustomId(`clan_apply_modal:${interaction.guild.id}`).setTitle('Clan application');
     modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('clan_name').setLabel('Clan name').setPlaceholder('Enter the name you want for your clan').setStyle(TextInputStyle.Short).setMaxLength(24).setRequired(true)));
