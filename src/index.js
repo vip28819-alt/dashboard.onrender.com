@@ -1042,7 +1042,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           console.error(`Could not send ${kind} reminder in ${guild.name}:`, error.message);
         }
       };
-      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.mode === 'interval' ? reminders.intervalMinutes : reminders.hadithIntervalMinutes, 'حديث صحيح من البخاري أو مسلم', reminders.hadithText, reminders.hadithChannelId);
+      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.hadithIntervalMinutes, 'حديث صحيح من البخاري أو مسلم', reminders.hadithText, reminders.hadithChannelId);
       await sendScheduled('verse', reminders.verseEnabled && reminders.hourly, reminders.verseIntervalMinutes, 'آية للتذكير', reminders.verseText, reminders.quranChannelId);
       if (friday && reminders.friday) {
         const fridayKey = `${guild.id}:friday:${now.toISOString().slice(0, 10)}`;
