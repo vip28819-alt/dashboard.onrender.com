@@ -79,8 +79,9 @@ const defaults = {
     mode: 'interval',
     intervalMinutes: 30,
     customDay: 5,
-    customTime: '12:00',
-    customMessage: '',
+    customHour: 12,
+    customMinute: 1,
+    customPeriod: 'PM',
     hourly: true,
     friday: true,
     hadithEnabled: true,
@@ -997,10 +998,15 @@ client.once(Events.ClientReady, async (readyClient) => {
       if (!reminders.enabled || !reminders.channelId) continue;
       if (reminders.mode === 'custom') {
         const day = Number(reminders.customDay);
-        const time = String(reminders.customTime || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
-        const currentTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
-        const customKey = `${guild.id}:custom:${now.toISOString().slice(0, 10)}:${currentTime}`;
-        if (now.getUTCDay() === day && time && currentTime === `${time[1]}:${time[2]}` && !reminderState.has(customKey)) {
+        const localNow = new Date(now.getTime() + (4 * 60 * 60 * 1000));
+        const hour12 = Number(reminders.customHour) || 12;
+        const minute = Number(reminders.customMinute) || 1;
+        const period = reminders.customPeriod === 'AM' ? 'AM' : 'PM';
+        const localHour = localNow.getUTCHours();
+        const currentHour12 = localHour % 12 || 12;
+        const currentPeriod = localHour >= 12 ? 'PM' : 'AM';
+        const customKey = `${guild.id}:custom:${localNow.toISOString().slice(0, 10)}:${currentHour12}:${localNow.getUTCMinutes()}:${currentPeriod}`;
+        if (localNow.getUTCDay() === day && currentHour12 === hour12 && localNow.getUTCMinutes() === minute && currentPeriod === period && !reminderState.has(customKey)) {
           const channel = guild.channels.cache.get(reminders.hadithChannelId);
           if (channel?.isTextBased()) {
             const hadith = await getAuthenticHadith().catch((error) => {
