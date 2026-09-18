@@ -10,6 +10,30 @@ const COMMAND_GROUPS = {
   economy: ['economy']
 };
 
+export const LOG_EVENT_CATALOG = [
+  { key: 'ban', label: 'Bans', group: 'Moderation' },
+  { key: 'kick', label: 'Kicks', group: 'Moderation' },
+  { key: 'timeout', label: 'Timeouts', group: 'Moderation' },
+  { key: 'warn', label: 'Warnings', group: 'Moderation' },
+  { key: 'nickname_changed', label: 'Nickname changes', group: 'Members' },
+  { key: 'member_join', label: 'Member joins', group: 'Members' },
+  { key: 'member_left', label: 'Member leaves', group: 'Members' },
+  { key: 'message_deleted', label: 'Deleted messages', group: 'Messages' },
+  { key: 'message_edited', label: 'Edited messages', group: 'Messages' },
+  { key: 'channel_created', label: 'Channels created', group: 'Server' },
+  { key: 'channel_deleted', label: 'Channels deleted', group: 'Server' },
+  { key: 'channel_updated', label: 'Channels updated', group: 'Server' },
+  { key: 'role_created', label: 'Roles created', group: 'Server' },
+  { key: 'role_deleted', label: 'Roles deleted', group: 'Server' },
+  { key: 'role_updated', label: 'Roles updated', group: 'Server' },
+  { key: 'ticket_opened', label: 'Tickets opened', group: 'Tickets' },
+  { key: 'ticket_closed', label: 'Tickets closed', group: 'Tickets' },
+  { key: 'ticket_transcript', label: 'Ticket transcripts', group: 'Tickets' },
+  { key: 'ticket_rating', label: 'Ticket ratings', group: 'Tickets' },
+  { key: 'auto_mod', label: 'AutoMod actions', group: 'Security' },
+  { key: 'security', label: 'Security alerts', group: 'Security' }
+];
+
 export function normalizeAliases(value, commandNames = Object.keys(defaultAliases())) {
   const input = value && typeof value === 'object' ? value : {};
   const result = {};

@@ -378,7 +378,7 @@ async function sendLog(guild, title, description, color = 0x5865f2) {
   const channel = guild.channels.cache.get(channelId);
   if (channel?.isTextBased()) await channel.send({ embeds: [guildEmbed(guild, title, description, color)] }).catch(() => {});
 }
-const logEventKeys = ['ban', 'kick', 'timeout', 'warn', 'message_deleted', 'message_edited', 'channel_created', 'channel_deleted', 'channel_updated', 'role_created', 'role_deleted', 'role_updated', 'member_join', 'member_left', 'nickname_changed', 'ticket_opened', 'ticket_closed', 'ticket_transcript', 'auto_mod', 'security'];
+const logEventKeys = ['ban', 'kick', 'timeout', 'warn', 'message_deleted', 'message_edited', 'channel_created', 'channel_deleted', 'channel_updated', 'role_created', 'role_deleted', 'role_updated', 'member_join', 'member_left', 'nickname_changed', 'ticket_opened', 'ticket_closed', 'ticket_transcript', 'ticket_rating', 'auto_mod', 'security'];
 async function sendTicketTranscript(guild, channel, systemId, closedBy) {
   const settings = getGuildData(guild.id);
   const transcriptChannelId = settings.logChannels.ticket_transcript || settings.logChannels.ticket_closed || settings.logChannelId;

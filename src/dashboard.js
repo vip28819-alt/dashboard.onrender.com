@@ -1,8 +1,9 @@
 ﻿import express from 'express';
 import { ChannelType } from 'discord.js';
 import { dashboardPage } from './dashboard-ui.js';
+import { logsDashboardEnhancement } from './logs-dashboard.js';
 import { infoPage } from './info-ui.js';
-import { getGuildSnapshot, getCommandCatalog, serializeSettingsForApi } from './bot-refinements.js';
+import { getGuildSnapshot, getCommandCatalog, serializeSettingsForApi, LOG_EVENT_CATALOG } from './bot-refinements.js';
 import crypto from 'node:crypto';
 
 
@@ -76,7 +77,7 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
   };
   app.use(express.json());
   app.get('/', (_request, response) => response.type('html').send(infoPage));
-  app.get('/dashboard', (_request, response) => response.type('html').send(dashboardPage));
+  app.get('/dashboard', (_request, response) => response.type('html').send(dashboardPage + logsDashboardEnhancement));
   app.get('/health', (_request, response) => response.json({ ok: true, uptime: process.uptime(), guilds: client.guilds.cache.size, timestamp: new Date().toISOString() }));
   app.get('/auth/login', (_request, response) => {
     if (!clientId || !clientSecret || !redirectUri) return response.status(503).send('Dashboard OAuth is not configured.');
@@ -128,17 +129,18 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     return response.json({ name: guild.name, ...serializeSettingsForApi(settings), ...getGuildSnapshot(guild, settings) });
   });
   app.get('/api/commands', requireAuth, (_request, response) => response.json(getCommandCatalog()));
-  app.get('/api/guilds/:id/channels', (request, response) => {
+  app.get('/api/log-events', requireAuth, (_request, response) => response.json(LOG_EVENT_CATALOG));
+  app.get('/api/guilds/:id/channels', requireAuth, requireGuildAdmin, (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     return response.json(guild.channels.cache.filter((channel) => channel.isTextBased() || channel.type === ChannelType.GuildCategory).map((channel) => ({ id: channel.id, name: channel.name, type: channel.type, kind: channel.type === ChannelType.GuildCategory ? 'category' : 'text' })));
   });
-  app.get('/api/guilds/:id/roles', (request, response) => {
+  app.get('/api/guilds/:id/roles', requireAuth, requireGuildAdmin, (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     return response.json(guild.roles.cache.filter((role) => role.id !== guild.id).sort((a, b) => b.position - a.position).map((role) => ({ id: role.id, name: role.name, position: role.position })));
   });
-  app.get('/api/guilds/:id/resources', (request, response) => {
+  app.get('/api/guilds/:id/resources', requireAuth, requireGuildAdmin, (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     return response.json({
@@ -220,13 +222,32 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     try {
       const settings = getGuildData(guild.id);
-      for (const eventKey of ['ban', 'kick', 'timeout', 'warn', 'message_deleted', 'message_edited', 'channel_created', 'channel_deleted', 'channel_updated', 'role_created', 'role_deleted', 'role_updated', 'member_join', 'member_left', 'nickname_changed', 'ticket_opened', 'ticket_closed', 'ticket_transcript', 'auto_mod', 'security']) await ensurePrivateLogChannel(guild, eventKey);
+      const allowedKeys = new Set(LOG_EVENT_CATALOG.map((event) => event.key));
+      const requestedKeys = Array.isArray(request.body?.eventKeys) ? request.body.eventKeys : LOG_EVENT_CATALOG.map((event) => event.key);
+      const eventKeys = [...new Set(requestedKeys.filter((key) => allowedKeys.has(key)))];
+      if (!eventKeys.length) return response.status(400).json({ error: 'Choose at least one log event.' });
+      for (const eventKey of eventKeys) await ensurePrivateLogChannel(guild, eventKey);
       settings.logChannelId = settings.logChannels.ban || settings.logChannelId;
       saveData();
-      return response.json({ ok: true, categoryId: settings.logCategoryId });
+      return response.json({ ok: true, categoryId: settings.logCategoryId, created: eventKeys.length, eventKeys });
     } catch (error) {
       return response.status(500).json({ error: error.message });
     }
+  });
+  app.post('/api/guilds/:id/logs/channel', (request, response) => {
+    const guild = client.guilds.cache.get(request.params.id);
+    if (!guild) return response.status(404).json({ error: 'Server not found.' });
+    const channel = guild.channels.cache.get(request.body?.channelId);
+    if (!channel?.isTextBased()) return response.status(400).json({ error: 'Choose a text channel from this server.' });
+    const allowedKeys = new Set(LOG_EVENT_CATALOG.map((event) => event.key));
+    const eventKeys = [...new Set((Array.isArray(request.body?.eventKeys) ? request.body.eventKeys : []).filter((key) => allowedKeys.has(key)))];
+    if (!eventKeys.length) return response.status(400).json({ error: 'Choose at least one log event.' });
+    const settings = getGuildData(guild.id);
+    for (const [key, value] of Object.entries(settings.logChannels || {})) if (eventKeys.includes(key) && value === channel.id) delete settings.logChannels[key];
+    for (const eventKey of eventKeys) settings.logChannels[eventKey] = channel.id;
+    settings.logChannelId = channel.id;
+    saveData();
+    return response.json({ ok: true, channelId: channel.id, eventKeys });
   });
   app.get('/api/guilds/:id/ticket-systems', async (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
