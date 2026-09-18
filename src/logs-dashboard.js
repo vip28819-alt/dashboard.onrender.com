@@ -19,6 +19,7 @@ export const logsDashboardEnhancement = `\n<style>
   const addLogsManager = () => {
     const view = id('view-logs');
     if (!view || id('logsManager')) return;
+    view.querySelector('.card')?.remove();
     const card = document.createElement('div');
     card.id = 'logsManager';
     card.className = 'card';
