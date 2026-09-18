@@ -545,6 +545,7 @@ async function createServerSetup(guild) {
   const voiceControl = await provision('voice control channel', () => makeText('voice-control', 'Voice room instructions and controls.', voiceCategory?.id));
   const joinToCreate = await provision('join-to-create channel', () => makeVoice('join-to-create', 'Join this channel to create a private voice room.', voiceCategory?.id));
   const afk = await provision('afk channel', () => makeVoice('afk', 'Members in this channel receive the AFK role.', voiceCategory?.id));
+  if (afk) await provision('AFK channel speaking restriction', () => afk.permissionOverwrites.edit(everyone, { Connect: true, Speak: false, ViewChannel: true }));
   const clans = await provision('clans channel', () => makeText('clans', 'Clan announcements and activity.', activitiesCategory?.id));
   const clanWars = await provision('clan wars channel', () => makeText('clan-wars', 'Weekly clan competitions and results.', activitiesCategory?.id));
   const clanShop = await provision('clan shop channel', () => makeText('clan-shop', 'Clan upgrades and rewards.', activitiesCategory?.id));
@@ -1133,8 +1134,17 @@ client.on(Events.VoiceStateUpdate, async (before, after) => {
   const wasInVoice = Boolean(before.channelId);
   const isInVoice = Boolean(after.channelId);
   if (settings.afkRoleId && before.channelId !== after.channelId) {
-    if (after.channelId === settings.afkChannelId) await member.roles.add(settings.afkRoleId, 'Entered AFK channel').catch(() => {});
-    else if (before.channelId === settings.afkChannelId) await member.roles.remove(settings.afkRoleId, 'Left AFK channel').catch(() => {});
+    const afkRole = guild.roles.cache.get(settings.afkRoleId);
+    const botMember = guild.members.me;
+    if (after.channelId === settings.afkChannelId) {
+      if (!afkRole || !botMember?.permissions.has(PermissionsBitField.Flags.ManageRoles) || afkRole.position >= botMember.roles.highest.position) {
+        console.error(`Cannot assign AFK role in ${guild.name}: grant Manage Roles and move the AFK role below the bot role.`);
+      } else {
+        await member.roles.add(afkRole, 'Entered AFK channel').catch((error) => console.error(`Could not assign AFK role in ${guild.name}:`, error.message));
+      }
+    } else if (before.channelId === settings.afkChannelId && afkRole) {
+      await member.roles.remove(afkRole, 'Left AFK channel').catch((error) => console.error(`Could not remove AFK role in ${guild.name}:`, error.message));
+    }
   }
   if (after.channelId === settings.joinToCreateChannelId) {
     const sourceChannel = guild.channels.cache.get(settings.joinToCreateChannelId) || await guild.channels.fetch(settings.joinToCreateChannelId).catch(() => null);
