@@ -72,6 +72,11 @@ const defaults = {
   islamicReminders: {
     enabled: false,
     channelId: null,
+    mode: 'interval',
+    intervalMinutes: 30,
+    customDay: 5,
+    customTime: '12:00',
+    customMessage: 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.',
     hourly: true,
     friday: true,
     hadithEnabled: true,
@@ -984,9 +989,21 @@ client.once(Events.ClientReady, async (readyClient) => {
     for (const guild of readyClient.guilds.cache.values()) {
       const settings = getGuildData(guild.id);
       const reminders = settings.islamicReminders;
-      if (!reminders.enabled || !reminders.channelId || (friday && !reminders.friday) || (!friday && !reminders.hourly)) continue;
+      if (!reminders.enabled || !reminders.channelId) continue;
       const channel = guild.channels.cache.get(reminders.channelId);
       if (!channel?.isTextBased()) continue;
+      if (reminders.mode === 'custom') {
+        const day = Number(reminders.customDay);
+        const time = String(reminders.customTime || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+        const currentTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+        const customKey = `${guild.id}:custom:${now.toISOString().slice(0, 10)}:${currentTime}`;
+        if (now.getUTCDay() === day && time && currentTime === `${time[1]}:${time[2]}` && !reminderState.has(customKey)) {
+          await channel.send({ embeds: [guildEmbed(guild, 'تذكير إسلامي', reminders.customMessage || reminders.hadithText, 0xd79a45)] });
+          reminderState.set(customKey, true);
+        }
+        continue;
+      }
+      if (friday && !reminders.friday || !friday && !reminders.hourly) continue;
       const sendScheduled = async (kind, enabled, intervalMinutes, title, text) => {
         if (!enabled) return;
         const interval = Math.max(1, Number(intervalMinutes) || 60);
@@ -1005,7 +1022,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           console.error(`Could not send ${kind} reminder in ${guild.name}:`, error.message);
         }
       };
-      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.hadithIntervalMinutes, 'حديث صحيح من البخاري أو مسلم', reminders.hadithText);
+      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.mode === 'interval' ? reminders.intervalMinutes : reminders.hadithIntervalMinutes, 'حديث صحيح من البخاري أو مسلم', reminders.hadithText);
       await sendScheduled('verse', reminders.verseEnabled && reminders.hourly, reminders.verseIntervalMinutes, 'آية للتذكير', reminders.verseText);
       if (friday && reminders.friday) {
         const fridayKey = `${guild.id}:friday:${now.toISOString().slice(0, 10)}`;
