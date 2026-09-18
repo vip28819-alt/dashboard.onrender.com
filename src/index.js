@@ -496,7 +496,15 @@ async function createServerSetup(guild) {
   const findText = (name, parentId = null) => guild.channels.cache.find((channel) => channel.type === ChannelType.GuildText && channel.name === name && (!parentId || channel.parentId === parentId));
   const makeText = async (name, topic, parentId = null) => findText(name, parentId) || guild.channels.create({ name, type: ChannelType.GuildText, topic, parent: parentId || undefined, permissionOverwrites: [{ id: everyone.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }] });
   const findVoice = (name, parentId = null) => guild.channels.cache.find((channel) => [ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type) && channel.name === name && (!parentId || channel.parentId === parentId));
-  const makeVoice = async (name, topic, parentId = null) => findVoice(name, parentId) || guild.channels.create({ name, type: ChannelType.GuildVoice, topic, parent: parentId || undefined });
+  const makeVoice = async (name, _topic, parentId = null) => findVoice(name, parentId) || guild.channels.create({
+    name,
+    type: ChannelType.GuildVoice,
+    parent: parentId || undefined,
+    permissionOverwrites: [{
+      id: everyone.id,
+      allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Speak]
+    }]
+  });
   const findCategory = (name) => guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === name);
   const makeCategory = async (name) => findCategory(name) || guild.channels.create({ name, type: ChannelType.GuildCategory });
   const findRole = (name) => guild.roles.cache.find((role) => !role.managed && role.name === name);
