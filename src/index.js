@@ -69,8 +69,10 @@ const defaults = {
     friday: true,
     hadithEnabled: true,
     hadithIntervalMinutes: 60,
+    hadithText: 'قال رسول الله ﷺ: «من صلى عليّ واحدة صلى الله عليه بها عشراً».',
     verseEnabled: true,
-    verseIntervalMinutes: 120
+    verseIntervalMinutes: 120,
+    verseText: 'قال الله تعالى: «ألا بذكر الله تطمئن القلوب».'
   },
   goodbyeChannelId: null,
   goodbyeMessage: '{username} has left **{server}**. We will remember you!',
@@ -895,8 +897,8 @@ client.once(Events.ClientReady, async (readyClient) => {
           console.error(`Could not send ${kind} reminder in ${guild.name}:`, error.message);
         }
       };
-      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.hadithIntervalMinutes, 'حديث اليوم', 'قال رسول الله ﷺ: «من صلى عليّ واحدة صلى الله عليه بها عشراً».');
-      await sendScheduled('verse', reminders.verseEnabled && reminders.hourly, reminders.verseIntervalMinutes, 'آية للتذكير', 'قال الله تعالى: «ألا بذكر الله تطمئن القلوب».');
+      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.hadithIntervalMinutes, 'حديث اليوم', reminders.hadithText);
+      await sendScheduled('verse', reminders.verseEnabled && reminders.hourly, reminders.verseIntervalMinutes, 'آية للتذكير', reminders.verseText);
       if (friday && reminders.friday) {
         const fridayKey = `${guild.id}:friday:${now.toISOString().slice(0, 10)}`;
         if (!reminderState.has(fridayKey)) {

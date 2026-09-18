@@ -178,6 +178,24 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
       return response.status(400).json({ error: error.message });
     }
   });
+  app.post('/api/guilds/:id/islamic/test', requireAuth, requireGuildAdmin, async (request, response) => {
+    const guild = client.guilds.cache.get(request.params.id);
+    if (!guild) return response.status(404).json({ error: 'Server not found.' });
+    const settings = getGuildData(guild.id);
+    const reminders = settings.islamicReminders || {};
+    const channel = reminders.channelId ? guild.channels.cache.get(reminders.channelId) : null;
+    if (!channel?.isTextBased()) return response.status(400).json({ error: 'Choose a valid reminder channel first.' });
+    const kind = request.body?.kind === 'verse' ? 'verse' : request.body?.kind === 'friday' ? 'friday' : 'hadith';
+    const titles = { hadith: 'حديث تجريبي', verse: 'آية تجريبية', friday: 'تذكير جمعة تجريبي' };
+    const texts = { hadith: reminders.hadithText, verse: reminders.verseText, friday: 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' };
+    if (!String(texts[kind] || '').trim()) return response.status(400).json({ error: 'Add content for this reminder first.' });
+    try {
+      await channel.send({ embeds: [{ title: titles[kind], description: texts[kind], color: 0xd79a45, timestamp: new Date().toISOString() }] });
+      return response.json({ ok: true });
+    } catch (error) {
+      return response.status(500).json({ error: error.message });
+    }
+  });
   app.patch('/api/guilds/:id', (request, response) => {
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
