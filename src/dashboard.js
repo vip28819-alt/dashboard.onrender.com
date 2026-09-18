@@ -182,8 +182,14 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     const guild = client.guilds.cache.get(request.params.id);
     if (!guild) return response.status(404).json({ error: 'Server not found.' });
     const settings = getGuildData(guild.id);
-    const reminders = settings.islamicReminders || {};
     const kind = request.body?.kind === 'verse' ? 'verse' : request.body?.kind === 'friday' ? 'friday' : 'hadith';
+    let reminders = settings.islamicReminders || {};
+    const configuredChannelIds = [reminders.hadithChannelId, reminders.quranChannelId, reminders.reminderChannelId || reminders.channelId];
+    const channelsReady = configuredChannelIds.every((id) => guild.channels.cache.get(id)?.isTextBased());
+    if (!channelsReady) {
+      await createServerSetup(guild);
+      reminders = getGuildData(guild.id).islamicReminders || {};
+    }
     const channelId = kind === 'hadith' ? reminders.hadithChannelId : kind === 'verse' ? reminders.quranChannelId : (reminders.reminderChannelId || reminders.channelId);
     const channel = channelId ? guild.channels.cache.get(channelId) : null;
     if (!channel?.isTextBased()) return response.status(400).json({ error: 'Run Islamic channel setup first so Hadith, Quran, and reminder channels are available.' });
