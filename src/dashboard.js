@@ -41,7 +41,7 @@ async function loadExtendedAliases(){if(!current)return;const s=await api('/api/
 setTimeout(loadExtendedAliases,600);window.addEventListener('focus',loadExtendedAliases);$('saveModAliases').onclick=()=>{const aliases={};for(const name of ['Ban','Kick','Timeout','Warn','Purge','Lock','Unlock','Quarantine','Softban','Unmute','Lockdown'])aliases[name.toLowerCase()]=$('aliases'+name).value.split(/\s+/).map(word=>word.trim().toLowerCase()).filter(Boolean);save({quarantineRoleId:$('quarantineRoleId').value||null,commandAliases:aliases},'modAliasNotice')};
 </script></body></html>`;
 
-export function startDashboard({ client, getGuildData, saveData, createTicketSetup, createServerSetup, ensurePrivateLogChannel, publishVerificationPanel }) {
+export function startDashboard({ client, getGuildData, saveData, createTicketSetup, createServerSetup, ensurePrivateLogChannel, publishVerificationPanel, getAuthenticHadith }) {
   const app = express();
   app.set('trust proxy', 1);
   const sessions = new Map();
@@ -187,7 +187,8 @@ export function startDashboard({ client, getGuildData, saveData, createTicketSet
     if (!channel?.isTextBased()) return response.status(400).json({ error: 'Choose a valid reminder channel first.' });
     const kind = request.body?.kind === 'verse' ? 'verse' : request.body?.kind === 'friday' ? 'friday' : 'hadith';
     const titles = { hadith: 'حديث تجريبي', verse: 'آية تجريبية', friday: 'تذكير جمعة تجريبي' };
-    const texts = { hadith: reminders.hadithText, verse: reminders.verseText, friday: 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' };
+    const hadith = kind === 'hadith' && getAuthenticHadith ? await getAuthenticHadith().catch(() => null) : null;
+    const texts = { hadith: hadith ? `${hadith.text}\n\n— ${hadith.book}, hadith ${hadith.number}` : reminders.hadithText, verse: reminders.verseText, friday: 'جمعة مباركة. أكثروا من الصلاة على النبي ﷺ، واقرؤوا سورة الكهف.' };
     if (!String(texts[kind] || '').trim()) return response.status(400).json({ error: 'Add content for this reminder first.' });
     try {
       await channel.send({ embeds: [{ title: titles[kind], description: texts[kind], color: 0xd79a45, timestamp: new Date().toISOString() }] });

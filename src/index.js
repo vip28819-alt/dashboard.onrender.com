@@ -147,6 +147,7 @@ const raidTracker = new Map();
 const voiceSessions = new Map();
 const dynamicVoiceRooms = new Map();
 const reminderState = new Map();
+let authenticHadithsPromise = null;
 let saveTimer = null;
 function getGuildData(guildId) {
   guildData[guildId] ??= structuredClone(defaults);
@@ -431,6 +432,25 @@ async function sendLog(guild, title, description, color = 0x5865f2) {
   if (!channelId) return;
   const channel = guild.channels.cache.get(channelId);
   if (channel?.isTextBased()) await channel.send({ embeds: [guildEmbed(guild, title, description, color)] }).catch(() => {});
+}
+async function getAuthenticHadith() {
+  if (!authenticHadithsPromise) {
+    authenticHadithsPromise = Promise.all([
+      ['Sahih al-Bukhari', 'https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/ara-bukhari.json'],
+      ['Sahih Muslim', 'https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/ara-muslim.json']
+    ].map(async ([book, url]) => {
+      const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error(`${book} source returned HTTP ${response.status}`);
+      const payload = await response.json();
+      return (payload.hadiths || []).filter((hadith) => typeof hadith.text === 'string' && hadith.text.trim()).map((hadith) => ({ book, text: hadith.text.trim(), number: hadith.hadithnumber }));
+    })).then((books) => books.flat()).catch((error) => {
+      authenticHadithsPromise = null;
+      throw error;
+    });
+  }
+  const hadiths = await authenticHadithsPromise;
+  if (!hadiths.length) throw new Error('The authentic hadith source returned no hadiths.');
+  return hadiths[Math.floor(Math.random() * hadiths.length)];
 }
 const logEventKeys = ['ban', 'kick', 'timeout', 'warn', 'message_deleted', 'message_edited', 'channel_created', 'channel_deleted', 'channel_updated', 'role_created', 'role_deleted', 'role_updated', 'member_join', 'member_left', 'nickname_changed', 'ticket_opened', 'ticket_closed', 'ticket_transcript', 'ticket_rating', 'auto_mod', 'security'];
 async function sendTicketTranscript(guild, channel, systemId, closedBy) {
@@ -974,13 +994,18 @@ client.once(Events.ClientReady, async (readyClient) => {
         const reminderKey = `${guild.id}:${kind}:${slot}`;
         if (reminderState.has(reminderKey)) return;
         try {
-          await channel.send({ embeds: [guildEmbed(guild, title, text, 0xd79a45)] });
+          const hadith = kind === 'hadith' ? await getAuthenticHadith().catch((error) => {
+            console.error(`Could not fetch authentic hadith for ${guild.name}:`, error.message);
+            return null;
+          }) : null;
+          const message = hadith ? `${hadith.text}\n\n— ${hadith.book}, hadith ${hadith.number}` : text;
+          await channel.send({ embeds: [guildEmbed(guild, title, message, 0xd79a45)] });
           reminderState.set(reminderKey, true);
         } catch (error) {
           console.error(`Could not send ${kind} reminder in ${guild.name}:`, error.message);
         }
       };
-      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.hadithIntervalMinutes, 'حديث اليوم', reminders.hadithText);
+      await sendScheduled('hadith', reminders.hadithEnabled && reminders.hourly, reminders.hadithIntervalMinutes, 'حديث صحيح من البخاري أو مسلم', reminders.hadithText);
       await sendScheduled('verse', reminders.verseEnabled && reminders.hourly, reminders.verseIntervalMinutes, 'آية للتذكير', reminders.verseText);
       if (friday && reminders.friday) {
         const fridayKey = `${guild.id}:friday:${now.toISOString().slice(0, 10)}`;
@@ -1588,6 +1613,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (error) { if (error?.code === 10062 || error?.rawError?.code === 10062) return; console.error(error); const response = { content: 'Something went wrong while running that command.', ephemeral: true }; try { if (interaction.deferred) await interaction.editReply(response); else if (interaction.replied) await interaction.followUp(response); else await interaction.reply(response); } catch (replyError) { if (replyError?.code !== 10062) console.error('Could not respond to interaction:', replyError); } }
 });
 
-startDashboard({ client, getGuildData, saveData, createTicketSetup, createServerSetup, ensurePrivateLogChannel, publishVerificationPanel });
+startDashboard({ client, getGuildData, saveData, createTicketSetup, createServerSetup, ensurePrivateLogChannel, publishVerificationPanel, getAuthenticHadith });
 await registerCommands();
 await client.login(process.env.DISCORD_TOKEN);
